@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UVT Asist</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="title">UVT Asist</div>
+    <div class="subtitle">Răspunsuri scurte + surse</div>
+  </header>
+
+  <section class="controls">
+    <label for="faculty">Facultate</label>
+    <select id="faculty"></select>
+  </section>
+
+  <section id="log" class="log" aria-label="Chat log"></section>
+
+  <section class="row">
+    <input id="q" type="text" placeholder="Scrie întrebarea..." />
+    <button id="send" type="button">Trimite</button>
+  </section>
+
+  <footer class="hint">
+    Backend: <code>http://127.0.0.1:5000</code>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

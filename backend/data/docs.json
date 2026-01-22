@@ -1,0 +1,33 @@
+{
+  "uvt": [
+    {
+      "title": "UVT - Acasă",
+      "url": "https://www.uvt.ro/",
+      "text": "Site-ul oficial UVT. Conține secțiuni precum Studenți, Admitere, Burse, Contact."
+    },
+    {
+      "title": "UVT - Studenți",
+      "url": "https://www.uvt.ro/studenti/",
+      "text": "Pagina dedicată studenților: informații despre burse, mobilități, regulamente, acte."
+    }
+  ],
+  "fmi": [
+    {
+      "title": "FMI - Acasă",
+      "url": "https://info.uvt.ro/",
+      "text": "Site-ul FMI UVT. Conține informații despre programe, orare, secretariat și noutăți."
+    },
+    {
+      "title": "FMI - Contact",
+      "url": "https://info.uvt.ro/contact/",
+      "text": "Informații de contact pentru FMI: adrese, email, program."
+    }
+  ],
+  "feaa": [
+    {
+      "title": "FEAA - Acasă",
+      "url": "https://feaa.uvt.ro/",
+      "text": "Site FEAA UVT cu informații despre programe, admitere și resurse pentru studenți."
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "UVT Asist",
+  "description": "Asistent AI pentru studenții UVT: răspunsuri scurte + surse (link-uri), cu selecție de facultate.",
+  "version": "0.1.0",
+  "manifest_version": 3,
+  "action": {
+    "default_title": "UVT Asist",
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:5000/*",
+    "http://localhost:5000/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
