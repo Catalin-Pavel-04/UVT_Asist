@@ -1,4 +1,4 @@
-const log = document.getElementById("log");
+﻿const log = document.getElementById("log");
 const input = document.getElementById("q");
 const btn = document.getElementById("send");
 const facultySelect = document.getElementById("faculty");
@@ -8,11 +8,11 @@ function esc(s) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
+    .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#039;");
 }
 
-function addMsg(who, html, sources=[]) {
+function addMsg(who, html, sources = []) {
   const wrap = document.createElement("div");
   wrap.className = "msg";
 
@@ -65,8 +65,18 @@ async function loadFaculties() {
   } catch (e) {
     facultySelect.innerHTML = `
       <option value="uvt">UVT (general)</option>
-      <option value="fmi">Facultatea de Matematică și Informatică</option>
-      <option value="feaa">FEAA</option>
+      <option value="arte">Facultatea de Arte și Design</option>
+      <option value="cbg">Facultatea de Chimie, Biologie, Geografie</option>
+      <option value="drept">Facultatea de Drept</option>
+      <option value="feaa">Facultatea de Economie și de Administrare a Afacerilor</option>
+      <option value="sport">Facultatea de Educație Fizică și Sport</option>
+      <option value="ffm">Facultatea de Fizică și Matematică</option>
+      <option value="info">Facultatea de Informatică</option>
+      <option value="fmt">Facultatea de Muzică și Teatru</option>
+      <option value="lift">Facultatea de Litere, Istorie, Filosofie și Teologie</option>
+      <option value="fsas">Facultatea de Sociologie și Asistență Socială</option>
+      <option value="fpse">Facultatea de Psihologie și Științe ale Educației</option>
+      <option value="fsgc">Facultatea de Științe ale Guvernării și Comunicării</option>
     `;
     facultySelect.value = saved;
   }
