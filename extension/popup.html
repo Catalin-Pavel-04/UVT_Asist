@@ -7,33 +7,48 @@
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <header>
-    <div class="title">UVT Asist</div>
-    <div class="subtitle">Răspunsuri scurte, surse și context de sesiune</div>
-  </header>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">U</div>
+        <div>
+          <div class="brand-title">UVT Asist</div>
+          <div class="brand-subtitle">Quick answers for UVT students</div>
+        </div>
+      </div>
+    </header>
 
-  <section class="controls">
-    <label for="faculty">Facultate</label>
-    <select id="faculty"></select>
-  </section>
+    <section class="faculty-panel">
+      <div class="faculty-label-row">
+        <label for="faculty">Faculty</label>
+        <span id="facultyBadge" class="faculty-badge">UVT</span>
+      </div>
+      <select id="faculty"></select>
+    </section>
 
-  <section id="meta" class="meta" aria-live="polite"></section>
-  <section id="log" class="log" aria-label="Chat log"></section>
+    <section id="meta" class="meta-line" aria-live="polite"></section>
 
-  <section class="row">
-    <input id="q" type="text" placeholder="Întreabă despre orar, burse, secretariat..." />
-    <button id="send" type="button">Trimite</button>
-  </section>
+    <section id="log" class="chat-log" aria-label="Chat log">
+      <div id="emptyState" class="empty-state">
+        <div class="empty-title">Ask about UVT information</div>
+        <div class="empty-text">
+          Examples: schedules, scholarships, admission, secretariat, contact
+        </div>
+      </div>
+    </section>
 
-  <section class="quick" aria-label="Întrebări rapide">
-    <button class="quick-btn" type="button" data-q="Unde găsesc orarul?">Orar</button>
-    <button class="quick-btn" type="button" data-q="Unde găsesc informații despre burse?">Burse</button>
-    <button class="quick-btn" type="button" data-q="Care este programul secretariatului?">Secretariat</button>
-  </section>
+    <section class="quick-actions" aria-label="Quick actions">
+      <button class="chip" type="button" data-q="Where can I find the schedule?">Schedule</button>
+      <button class="chip" type="button" data-q="Where can I find scholarship information?">Scholarships</button>
+      <button class="chip" type="button" data-q="What is the secretariat schedule?">Secretariat</button>
+      <button class="chip" type="button" data-q="Where can I find admission information?">Admission</button>
+    </section>
 
-  <footer class="hint">
-    Backend: <code>http://127.0.0.1:5000</code>
-  </footer>
+    <section class="composer">
+      <input id="q" type="text" placeholder="Ask something..." />
+      <button id="send" type="button">Send</button>
+    </section>
+  </div>
 
   <script src="popup.js"></script>
 </body>
