@@ -1,27 +1,170 @@
-:root { --b:#e6e6e6; --bg:#ffffff; --muted:#666; }
-* { box-sizing: border-box; }
-body { font-family: Arial, sans-serif; margin: 12px; width: 360px; background: var(--bg); }
-header { margin-bottom: 10px; }
-.title { font-size: 16px; font-weight: 700; }
-.subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+:root {
+  --b: #e6e6e6;
+  --bg: #ffffff;
+  --muted: #666666;
+  --panel: #fafafa;
+  --accent: #0f766e;
+  --accent-soft: #ecfdf5;
+}
 
-.controls { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-label { font-size: 12px; color: var(--muted); width: 62px; }
-select { flex: 1; padding: 8px; border: 1px solid var(--b); border-radius: 10px; background: white; }
+* {
+  box-sizing: border-box;
+}
 
-.log { height: 290px; overflow: auto; border: 1px solid var(--b); padding: 10px; border-radius: 12px; }
-.msg { margin: 10px 0; }
-.who { font-weight: 700; font-size: 12px; }
-.bubble { margin-top: 4px; padding: 9px 10px; border: 1px solid #f0f0f0; border-radius: 12px; background: #fafafa; }
-.bubble a { word-break: break-all; }
-.sources { margin-top: 8px; font-size: 12px; color: var(--muted); }
-.sources ul { margin: 6px 0 0 16px; padding: 0; }
-.sources li { margin: 4px 0; }
+body {
+  font-family: Arial, sans-serif;
+  margin: 12px;
+  width: 380px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
+}
 
-.row { display: flex; gap: 8px; margin-top: 10px; }
-input { flex: 1; padding: 10px; border: 1px solid var(--b); border-radius: 10px; }
-button { padding: 10px 12px; border: 1px solid var(--b); border-radius: 10px; background: white; cursor: pointer; }
-button:hover { background: #f6f6f6; }
+header {
+  margin-bottom: 10px;
+}
 
-.hint { margin-top: 8px; font-size: 11px; color: var(--muted); }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+label {
+  font-size: 12px;
+  color: var(--muted);
+  width: 62px;
+}
+
+select,
+input,
+button {
+  border: 1px solid var(--b);
+  border-radius: 10px;
+}
+
+select {
+  flex: 1;
+  padding: 8px;
+  background: white;
+}
+
+.meta {
+  min-height: 16px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.log {
+  height: 320px;
+  overflow: auto;
+  border: 1px solid var(--b);
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.msg {
+  margin: 10px 0;
+}
+
+.who {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.bubble {
+  margin-top: 4px;
+  padding: 9px 10px;
+  border: 1px solid #f0f0f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.bubble a {
+  word-break: break-all;
+}
+
+.sources {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sources ul {
+  margin: 6px 0 0 16px;
+  padding: 0;
+}
+
+.sources li {
+  margin: 4px 0;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+input {
+  flex: 1;
+  padding: 10px;
+}
+
+button {
+  padding: 10px 12px;
+  background: white;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+button:hover {
+  background: #f6f6f6;
+  border-color: #d3d3d3;
+}
+
+.quick {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.quick-btn {
+  padding: 6px 8px;
+  font-size: 12px;
+  background: var(--accent-soft);
+  border-color: #cceee7;
+}
+
+.feedback {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.feedback button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}

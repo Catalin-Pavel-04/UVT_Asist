@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ro">
 <head>
   <meta charset="utf-8" />
@@ -9,7 +9,7 @@
 <body>
   <header>
     <div class="title">UVT Asist</div>
-    <div class="subtitle">Răspunsuri scurte + surse</div>
+    <div class="subtitle">Răspunsuri scurte, surse și context de sesiune</div>
   </header>
 
   <section class="controls">
@@ -17,11 +17,18 @@
     <select id="faculty"></select>
   </section>
 
+  <section id="meta" class="meta" aria-live="polite"></section>
   <section id="log" class="log" aria-label="Chat log"></section>
 
   <section class="row">
-    <input id="q" type="text" placeholder="Scrie întrebarea..." />
+    <input id="q" type="text" placeholder="Întreabă despre orar, burse, secretariat..." />
     <button id="send" type="button">Trimite</button>
+  </section>
+
+  <section class="quick" aria-label="Întrebări rapide">
+    <button class="quick-btn" type="button" data-q="Unde găsesc orarul?">Orar</button>
+    <button class="quick-btn" type="button" data-q="Unde găsesc informații despre burse?">Burse</button>
+    <button class="quick-btn" type="button" data-q="Care este programul secretariatului?">Secretariat</button>
   </section>
 
   <footer class="hint">

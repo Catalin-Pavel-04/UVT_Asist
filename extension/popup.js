@@ -1,10 +1,38 @@
-﻿const log = document.getElementById("log");
+const BACKEND_URL = "http://127.0.0.1:5000";
+const FALLBACK_FACULTIES = [
+  { id: "uvt", name: "UVT (general)" },
+  { id: "arte", name: "Facultatea de Arte și Design" },
+  { id: "cbg", name: "Facultatea de Chimie, Biologie, Geografie" },
+  { id: "drept", name: "Facultatea de Drept" },
+  { id: "feaa", name: "Facultatea de Economie și de Administrare a Afacerilor" },
+  { id: "sport", name: "Facultatea de Educație Fizică și Sport" },
+  { id: "ffm", name: "Facultatea de Fizică și Matematică" },
+  { id: "info", name: "Facultatea de Informatică" },
+  { id: "fmt", name: "Facultatea de Muzică și Teatru" },
+  { id: "lift", name: "Facultatea de Litere, Istorie, Filosofie și Teologie" },
+  { id: "fsas", name: "Facultatea de Sociologie și Asistență Socială" },
+  { id: "fpse", name: "Facultatea de Psihologie și Științe ale Educației" },
+  { id: "fsgc", name: "Facultatea de Științe ale Guvernării și Comunicării" }
+];
+const INTENT_LABELS = {
+  general: "general",
+  orar: "orar",
+  burse: "burse",
+  contact: "contact",
+  admitere: "admitere",
+  cazare: "cazare",
+  mobilitati: "mobilități",
+  regulamente: "regulamente"
+};
+
+const log = document.getElementById("log");
 const input = document.getElementById("q");
 const btn = document.getElementById("send");
 const facultySelect = document.getElementById("faculty");
+const meta = document.getElementById("meta");
 
-function esc(s) {
-  return String(s)
+function esc(value) {
+  return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -12,7 +40,15 @@ function esc(s) {
     .replaceAll("'", "&#039;");
 }
 
-function addMsg(who, html, sources = []) {
+function setMeta(text) {
+  meta.textContent = text || "";
+}
+
+function formatIntent(intent) {
+  return INTENT_LABELS[intent] || intent || "general";
+}
+
+function addMsg(who, html, sources = [], feedbackPayload = null) {
   const wrap = document.createElement("div");
   wrap.className = "msg";
 
@@ -27,58 +63,109 @@ function addMsg(who, html, sources = []) {
   wrap.appendChild(whoDiv);
   wrap.appendChild(bubble);
 
-  if (sources && sources.length) {
-    const s = document.createElement("div");
-    s.className = "sources";
-    s.innerHTML = "<div><b>Surse</b></div>";
+  if (sources.length) {
+    const src = document.createElement("div");
+    src.className = "sources";
+    src.innerHTML = "<div><b>Surse</b></div>";
     const ul = document.createElement("ul");
-    for (const url of sources) {
+    sources.forEach((url) => {
       const li = document.createElement("li");
-      const safe = esc(url);
-      li.innerHTML = `<a href="${safe}" target="_blank" rel="noreferrer">${safe}</a>`;
+      const safeUrl = esc(url);
+      li.innerHTML = `<a href="${safeUrl}" target="_blank" rel="noreferrer">${safeUrl}</a>`;
       ul.appendChild(li);
-    }
-    s.appendChild(ul);
-    wrap.appendChild(s);
+    });
+    src.appendChild(ul);
+    wrap.appendChild(src);
+  }
+
+  if (feedbackPayload) {
+    const feedback = document.createElement("div");
+    feedback.className = "feedback";
+
+    const up = document.createElement("button");
+    up.type = "button";
+    up.textContent = "Util";
+    up.addEventListener("click", () => {
+      sendFeedback({ ...feedbackPayload, vote: "up" });
+      up.disabled = true;
+      down.disabled = true;
+    });
+
+    const down = document.createElement("button");
+    down.type = "button";
+    down.textContent = "Inutil";
+    down.addEventListener("click", () => {
+      sendFeedback({ ...feedbackPayload, vote: "down" });
+      up.disabled = true;
+      down.disabled = true;
+    });
+
+    feedback.appendChild(up);
+    feedback.appendChild(down);
+    wrap.appendChild(feedback);
   }
 
   log.appendChild(wrap);
   log.scrollTop = log.scrollHeight;
+  return wrap;
+}
+
+async function sendFeedback(payload) {
+  try {
+    await fetch(`${BACKEND_URL}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    console.debug("Feedback request failed", error);
+  }
+}
+
+async function getCurrentTabUrl() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tabs[0]?.url || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+async function ensureSessionId() {
+  const { sessionId } = await chrome.storage.local.get(["sessionId"]);
+  if (sessionId) {
+    return sessionId;
+  }
+  const nextSessionId = crypto.randomUUID();
+  await chrome.storage.local.set({ sessionId: nextSessionId });
+  return nextSessionId;
+}
+
+function populateFaculties(faculties, selectedFacultyId) {
+  facultySelect.innerHTML = "";
+  faculties.forEach((faculty) => {
+    const option = document.createElement("option");
+    option.value = faculty.id;
+    option.textContent = faculty.name;
+    facultySelect.appendChild(option);
+  });
+  facultySelect.value = selectedFacultyId;
 }
 
 async function loadFaculties() {
-  const res = await chrome.storage.local.get(["facultyId"]);
-  const saved = res.facultyId || "uvt";
+  const { facultyId } = await chrome.storage.local.get(["facultyId"]);
+  const selectedFacultyId = facultyId || "uvt";
 
   try {
-    const r = await fetch("http://127.0.0.1:5000/faculties");
-    const data = await r.json();
-
-    facultySelect.innerHTML = "";
-    for (const f of data.faculties) {
-      const opt = document.createElement("option");
-      opt.value = f.id;
-      opt.textContent = f.name;
-      facultySelect.appendChild(opt);
+    const response = await fetch(`${BACKEND_URL}/faculties`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
-    facultySelect.value = saved;
-  } catch (e) {
-    facultySelect.innerHTML = `
-      <option value="uvt">UVT (general)</option>
-      <option value="arte">Facultatea de Arte și Design</option>
-      <option value="cbg">Facultatea de Chimie, Biologie, Geografie</option>
-      <option value="drept">Facultatea de Drept</option>
-      <option value="feaa">Facultatea de Economie și de Administrare a Afacerilor</option>
-      <option value="sport">Facultatea de Educație Fizică și Sport</option>
-      <option value="ffm">Facultatea de Fizică și Matematică</option>
-      <option value="info">Facultatea de Informatică</option>
-      <option value="fmt">Facultatea de Muzică și Teatru</option>
-      <option value="lift">Facultatea de Litere, Istorie, Filosofie și Teologie</option>
-      <option value="fsas">Facultatea de Sociologie și Asistență Socială</option>
-      <option value="fpse">Facultatea de Psihologie și Științe ale Educației</option>
-      <option value="fsgc">Facultatea de Științe ale Guvernării și Comunicării</option>
-    `;
-    facultySelect.value = saved;
+    const data = await response.json();
+    populateFaculties(data.faculties || FALLBACK_FACULTIES, selectedFacultyId);
+  } catch (error) {
+    populateFaculties(FALLBACK_FACULTIES, selectedFacultyId);
+    setMeta("Lista de facultăți este în modul local fallback.");
   }
 }
 
@@ -86,43 +173,87 @@ facultySelect.addEventListener("change", async () => {
   await chrome.storage.local.set({ facultyId: facultySelect.value });
 });
 
-async function send() {
-  const q = input.value.trim();
-  if (!q) return;
+async function send(prefilledQuestion = null) {
+  const question = (prefilledQuestion ?? input.value).trim();
+  if (!question) {
+    return;
+  }
 
+  const sessionId = await ensureSessionId();
   const { facultyId } = await chrome.storage.local.get(["facultyId"]);
-  const fid = facultyId || facultySelect.value || "uvt";
+  const selectedFacultyId = facultyId || facultySelect.value || "uvt";
+  const currentUrl = await getCurrentTabUrl();
 
-  addMsg("Tu", esc(q));
+  addMsg("Tu", esc(question));
   input.value = "";
 
-  addMsg("UVT Asist", "Se caută răspuns...", []);
+  const pendingMessage = addMsg("UVT Asist", "Se caută răspuns...", []);
 
   try {
-    const resp = await fetch("http://127.0.0.1:5000/chat", {
+    const response = await fetch(`${BACKEND_URL}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: q, faculty_id: fid })
+      body: JSON.stringify({
+        question,
+        faculty_id: selectedFacultyId,
+        current_url: currentUrl,
+        session_id: sessionId
+      })
     });
 
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
 
-    const data = await resp.json();
+    const data = await response.json();
+    pendingMessage.remove();
 
-    // Remove placeholder
-    log.removeChild(log.lastChild);
+    if (data.session_id && data.session_id !== sessionId) {
+      await chrome.storage.local.set({ sessionId: data.session_id });
+    }
 
-    const answerHtml = esc(data.answer || "");
-    addMsg("UVT Asist", answerHtml, data.sources || []);
-  } catch (e) {
-    log.removeChild(log.lastChild);
+    const metaBits = [];
+    if (data.intent) {
+      metaBits.push(`Intent: ${formatIntent(data.intent)}`);
+    }
+    if (data.matched_faculty) {
+      metaBits.push(`Facultate: ${data.matched_faculty}`);
+    }
+    setMeta(metaBits.join(" | "));
+
+    addMsg(
+      "UVT Asist",
+      esc(data.answer || ""),
+      data.sources || [],
+      {
+        question,
+        faculty_id: selectedFacultyId,
+        current_url: currentUrl,
+        session_id: data.session_id || sessionId,
+        intent: data.intent || "general"
+      }
+    );
+  } catch (error) {
+    pendingMessage.remove();
+    setMeta("Backend indisponibil.");
     addMsg("UVT Asist", "Eroare: backend indisponibil. Pornește Flask pe 127.0.0.1:5000", []);
   }
 }
 
-btn.addEventListener("click", send);
-input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") send();
+btn.addEventListener("click", () => {
+  send();
+});
+
+input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    send();
+  }
+});
+
+document.querySelectorAll(".quick-btn").forEach((quickButton) => {
+  quickButton.addEventListener("click", () => {
+    send(quickButton.dataset.q || "");
+  });
 });
 
 loadFaculties();
