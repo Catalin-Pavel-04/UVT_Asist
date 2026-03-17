@@ -14,16 +14,6 @@ const FALLBACK_FACULTIES = [
   { id: "fpse", name: "Facultatea de Psihologie si Stiinte ale Educatiei" },
   { id: "fsgc", name: "Facultatea de Stiinte ale Guvernarii si Comunicarii" }
 ];
-const INTENT_LABELS = {
-  general: "general",
-  orar: "orar",
-  burse: "burse",
-  contact: "contact",
-  admitere: "admitere",
-  cazare: "cazare",
-  mobilitati: "mobilitati",
-  regulamente: "regulamente"
-};
 
 const log = document.getElementById("log");
 const input = document.getElementById("q");
@@ -61,18 +51,19 @@ function setStatus(online) {
 
 async function loadTheme() {
   const stored = await chrome.storage.local.get(["theme"]);
-  const theme = stored.theme || "light";
-  applyTheme(theme);
+  applyTheme(stored.theme || "light");
 }
 
 function applyTheme(theme) {
-  document.body.classList.toggle("dark", theme === "dark");
-  themeToggle.textContent = theme === "dark" ? "🌒" : "☀️";
+  const isDark = theme === "dark";
+  document.body.classList.toggle("dark", isDark);
+  themeToggle.textContent = isDark ? "L" : "D";
+  themeToggle.title = isDark ? "Comuta pe tema deschisa" : "Comuta pe tema inchisa";
+  themeToggle.setAttribute("aria-label", themeToggle.title);
 }
 
 async function toggleTheme() {
-  const isDark = document.body.classList.contains("dark");
-  const nextTheme = isDark ? "light" : "dark";
+  const nextTheme = document.body.classList.contains("dark") ? "light" : "dark";
   applyTheme(nextTheme);
   await chrome.storage.local.set({ theme: nextTheme });
 }
@@ -123,7 +114,6 @@ function createSources(sourceDetails = [], urls = []) {
     const label = document.createElement("div");
     label.className = "source-label";
     label.textContent = source.title || "Sursa oficiala";
-
     card.appendChild(label);
 
     if (source.snippet) {
@@ -139,8 +129,8 @@ function createSources(sourceDetails = [], urls = []) {
     link.target = "_blank";
     link.rel = "noreferrer";
     link.textContent = source.url;
-
     card.appendChild(link);
+
     block.appendChild(card);
   });
 
@@ -186,26 +176,6 @@ function removeLoadingMessage() {
   }
 }
 
-async function getCurrentTabUrl() {
-  try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    return tabs[0]?.url || "";
-  } catch (error) {
-    return "";
-  }
-}
-
-async function ensureSessionId() {
-  const stored = await chrome.storage.local.get(["sessionId"]);
-  if (stored.sessionId) {
-    return stored.sessionId;
-  }
-
-  const sessionId = crypto.randomUUID();
-  await chrome.storage.local.set({ sessionId });
-  return sessionId;
-}
-
 async function checkBackend() {
   try {
     const response = await fetch(`${BACKEND_URL}/health`);
@@ -222,6 +192,7 @@ async function checkBackend() {
 
 function populateFaculties(faculties, selectedFacultyId) {
   facultySelect.innerHTML = "";
+
   faculties.forEach((faculty) => {
     const opt = document.createElement("option");
     opt.value = faculty.id;
@@ -229,7 +200,8 @@ function populateFaculties(faculties, selectedFacultyId) {
     facultySelect.appendChild(opt);
   });
 
-  facultySelect.value = selectedFacultyId;
+  const availableIds = new Set(faculties.map((faculty) => faculty.id));
+  facultySelect.value = availableIds.has(selectedFacultyId) ? selectedFacultyId : "uvt";
   updateFacultyBadge();
 }
 
@@ -267,10 +239,8 @@ async function sendMessage(prefilledQuestion = null) {
   addLoadingMessage();
 
   try {
-    const sessionId = await ensureSessionId();
     const stored = await chrome.storage.local.get(["facultyId"]);
     const facultyId = stored.facultyId || facultySelect.value || "uvt";
-    const currentUrl = await getCurrentTabUrl();
 
     const response = await fetch(`${BACKEND_URL}/chat`, {
       method: "POST",
@@ -279,9 +249,7 @@ async function sendMessage(prefilledQuestion = null) {
       },
       body: JSON.stringify({
         question,
-        faculty_id: facultyId,
-        current_url: currentUrl,
-        session_id: sessionId
+        faculty_id: facultyId
       })
     });
 
@@ -290,13 +258,22 @@ async function sendMessage(prefilledQuestion = null) {
     }
 
     const data = await response.json();
+    const sources = data.sources || [];
+    const metaParts = [];
+
+    if (data.matched_faculty) {
+      metaParts.push(`Facultate: ${data.matched_faculty}`);
+    }
+    if (sources.length) {
+      metaParts.push(`Surse: ${sources.length}`);
+    }
 
     removeLoadingMessage();
-    meta.textContent = `Intent detectat: ${INTENT_LABELS[data.intent] || "general"} | Facultate: ${data.matched_faculty || "UVT"}`;
+    meta.textContent = metaParts.join(" | ");
     addBotMessage(
       data.answer || "Nu exista raspuns disponibil.",
       data.source_details || [],
-      data.sources || []
+      sources
     );
     setStatus(true);
   } catch (error) {

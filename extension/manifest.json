@@ -8,16 +8,10 @@
     "default_popup": "popup.html"
   },
   "permissions": [
-    "storage",
-    "tabs"
+    "storage"
   ],
   "host_permissions": [
     "http://127.0.0.1:5000/*",
-    "http://localhost:5000/*",
-    "https://*/*",
-    "http://*/*"
-  ],
-  "background": {
-    "service_worker": "background.js"
-  }
+    "http://localhost:5000/*"
+  ]
 }
