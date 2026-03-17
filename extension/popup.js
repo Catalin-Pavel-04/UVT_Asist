@@ -90,11 +90,29 @@ function createMessage(type, label, html) {
   return wrap;
 }
 
-function createSources(sourceDetails = [], urls = []) {
-  const normalizedSources = sourceDetails.length
-    ? sourceDetails
-    : urls.map((url) => ({ title: "", url, snippet: "" }));
+function normalizeSources(sources = []) {
+  const seen = new Set();
 
+  return sources
+    .filter((source) => source && typeof source.url === "string" && source.url.trim())
+    .map((source) => ({
+      title: typeof source.title === "string" && source.title.trim()
+        ? source.title.trim()
+        : "Sursa oficiala",
+      url: source.url.trim()
+    }))
+    .filter((source) => {
+      if (seen.has(source.url)) {
+        return false;
+      }
+
+      seen.add(source.url);
+      return true;
+    });
+}
+
+function createSources(sources = []) {
+  const normalizedSources = normalizeSources(sources);
   if (!normalizedSources.length) {
     return null;
   }
@@ -113,15 +131,8 @@ function createSources(sourceDetails = [], urls = []) {
 
     const label = document.createElement("div");
     label.className = "source-label";
-    label.textContent = source.title || "Sursa oficiala";
+    label.textContent = source.title;
     card.appendChild(label);
-
-    if (source.snippet) {
-      const text = document.createElement("div");
-      text.className = "source-text";
-      text.textContent = source.snippet;
-      card.appendChild(text);
-    }
 
     const link = document.createElement("a");
     link.className = "source-link";
@@ -144,11 +155,11 @@ function addUserMessage(text) {
   scrollToBottom();
 }
 
-function addBotMessage(text, sourceDetails = [], urls = []) {
+function addBotMessage(text, sources = []) {
   const msg = createMessage("bot", "UVT Asist", esc(text));
   log.appendChild(msg);
 
-  const sourceBlock = createSources(sourceDetails, urls);
+  const sourceBlock = createSources(sources);
   if (sourceBlock) {
     log.appendChild(sourceBlock);
   }
@@ -258,7 +269,7 @@ async function sendMessage(prefilledQuestion = null) {
     }
 
     const data = await response.json();
-    const sources = data.sources || [];
+    const sources = normalizeSources(data.sources || []);
     const metaParts = [];
 
     if (data.matched_faculty) {
@@ -270,11 +281,7 @@ async function sendMessage(prefilledQuestion = null) {
 
     removeLoadingMessage();
     meta.textContent = metaParts.join(" | ");
-    addBotMessage(
-      data.answer || "Nu exista raspuns disponibil.",
-      data.source_details || [],
-      sources
-    );
+    addBotMessage(data.answer || "Nu exista raspuns disponibil.", sources);
     setStatus(true);
   } catch (error) {
     removeLoadingMessage();

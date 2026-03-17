@@ -14,6 +14,9 @@ def ask_llm(system_prompt: str, user_prompt: str) -> str:
             {"role": "user", "content": user_prompt},
         ],
         "stream": False,
+        "options": {
+            "temperature": 0.2,
+        },
     }
 
     response = requests.post(OLLAMA_URL, json=payload, timeout=120)

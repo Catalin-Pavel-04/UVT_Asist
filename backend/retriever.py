@@ -13,7 +13,42 @@ INTENT_KEYWORDS = {
     "regulamente": ["regulament", "regulamente", "rules"],
     "examene": ["examen", "examene", "session", "sesiune"],
     "licenta": ["licenta", "disertatie", "graduation"],
+    "calendar": ["calendar", "semestru", "vacanta", "vacante", "academic"],
+    "taxe": ["taxa", "taxe", "fee", "fees", "plata"],
 }
+
+CONVERSATIONAL_PATTERNS = [
+    "ce faci",
+    "ce mai faci",
+    "cum esti",
+    "cum merge",
+    "cine esti",
+    "salut",
+    "buna",
+    "hello",
+    "hi",
+    "hey",
+    "multumesc",
+    "mersi",
+    "merci",
+    "thanks",
+    "ms",
+]
+
+VAGUE_PATTERNS = [
+    "unde gasesc informatiile",
+    "unde gasesc informatii",
+    "unde gasesc",
+    "cum procedez",
+    "nu gasesc",
+    "am nevoie de informatii",
+    "vreau informatii",
+    "imi trebuie informatii",
+    "ma poti ajuta",
+    "am o intrebare",
+]
+
+QUESTION_HINTS = {"unde", "cum", "ce", "care", "cand", "cat", "cine"}
 
 
 def strip_diacritics(text: str) -> str:
@@ -28,7 +63,7 @@ def normalize(text: str) -> str:
 
 def tokenize(text: str) -> list[str]:
     cleaned = re.sub(r"[^a-z0-9\s-]", " ", normalize(text))
-    return [token for token in cleaned.split() if len(token) > 2]
+    return [token for token in cleaned.split() if len(token) > 1]
 
 
 def detect_intent(question: str) -> tuple[str, float]:
@@ -46,6 +81,29 @@ def detect_intent(question: str) -> tuple[str, float]:
     total_score = sum(scores.values())
     confidence = best_score / max(total_score, 1)
     return best_intent, confidence
+
+
+def classify_question(question: str) -> str:
+    query = normalize(question)
+    tokens = tokenize(question)
+    intent, _ = detect_intent(question)
+
+    if intent != "general":
+        return "factual"
+
+    if any(pattern in query for pattern in CONVERSATIONAL_PATTERNS) and len(tokens) <= 6:
+        return "conversational"
+
+    if any(pattern in query for pattern in VAGUE_PATTERNS):
+        return "vague"
+
+    if len(tokens) <= 4 and any(token in QUESTION_HINTS for token in tokens):
+        return "vague"
+
+    if len(tokens) <= 2 and tokens:
+        return "conversational"
+
+    return "factual"
 
 
 def chunk_text(text: str, chunk_size: int = 900, overlap: int = 150) -> list[str]:
@@ -70,7 +128,7 @@ def chunk_text(text: str, chunk_size: int = 900, overlap: int = 150) -> list[str
 
 
 def score_chunk(question: str, chunk: str, page_title: str = "") -> int:
-    query_tokens = tokenize(question)
+    query_tokens = [token for token in tokenize(question) if len(token) > 2]
     haystack = normalize(f"{page_title} {chunk}")
     title_haystack = normalize(page_title)
 
