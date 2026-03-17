@@ -1,153 +1,92 @@
-from __future__ import annotations
-
 import re
-import unicodedata
-from collections import Counter
-
-INTENT_KEYWORDS = {
-    "orar": ["orar", "schedule", "timetable", "curs", "seminar", "lab"],
-    "burse": ["bursa", "burse", "scholarship", "scholarships"],
-    "contact": ["contact", "secretariat", "program", "telefon", "email"],
-    "admitere": ["admitere", "admission", "inscriere", "dosar", "acte"],
-    "mobilitati": ["mobilitate", "erasmus", "exchange"],
-    "regulamente": ["regulament", "regulamente", "rules"],
-    "examene": ["examen", "examene", "session", "sesiune"],
-    "licenta": ["licenta", "disertatie", "graduation"],
-    "calendar": ["calendar", "semestru", "vacanta", "vacante", "academic"],
-    "taxe": ["taxa", "taxe", "fee", "fees", "plata"],
-}
-
-CONVERSATIONAL_PATTERNS = [
-    "ce faci",
-    "ce mai faci",
-    "cum esti",
-    "cum merge",
-    "cine esti",
-    "salut",
-    "buna",
-    "hello",
-    "hi",
-    "hey",
-    "multumesc",
-    "mersi",
-    "merci",
-    "thanks",
-    "ms",
-]
-
-VAGUE_PATTERNS = [
-    "unde gasesc informatiile",
-    "unde gasesc informatii",
-    "unde gasesc",
-    "cum procedez",
-    "nu gasesc",
-    "am nevoie de informatii",
-    "vreau informatii",
-    "imi trebuie informatii",
-    "ma poti ajuta",
-    "am o intrebare",
-]
-
-QUESTION_HINTS = {"unde", "cum", "ce", "care", "cand", "cat", "cine"}
-
-
-def strip_diacritics(text: str) -> str:
-    normalized = unicodedata.normalize("NFD", text or "")
-    return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
 
 
 def normalize(text: str) -> str:
-    lowered = strip_diacritics(text).lower()
-    return re.sub(r"\s+", " ", lowered).strip()
+    return re.sub(r"\s+", " ", text.lower()).strip()
 
 
 def tokenize(text: str) -> list[str]:
-    cleaned = re.sub(r"[^a-z0-9\s-]", " ", normalize(text))
-    return [token for token in cleaned.split() if len(token) > 1]
+    text = normalize(text)
+    text = re.sub(r"[^a-z0-9ăâîșț\s-]", " ", text)
+    return [tok for tok in text.split() if len(tok) > 2]
 
 
-def detect_intent(question: str) -> tuple[str, float]:
-    query = normalize(question)
-    scores = {}
-
-    for intent, keywords in INTENT_KEYWORDS.items():
-        scores[intent] = sum(1 for keyword in keywords if keyword in query)
-
-    best_intent = max(scores, key=scores.get)
-    best_score = scores[best_intent]
-    if best_score == 0:
-        return "general", 0.0
-
-    total_score = sum(scores.values())
-    confidence = best_score / max(total_score, 1)
-    return best_intent, confidence
-
-
-def classify_question(question: str) -> str:
-    query = normalize(question)
-    tokens = tokenize(question)
-    intent, _ = detect_intent(question)
-
-    if intent != "general":
-        return "factual"
-
-    if any(pattern in query for pattern in CONVERSATIONAL_PATTERNS) and len(tokens) <= 6:
-        return "conversational"
-
-    if any(pattern in query for pattern in VAGUE_PATTERNS):
-        return "vague"
-
-    if len(tokens) <= 4 and any(token in QUESTION_HINTS for token in tokens):
-        return "vague"
-
-    if len(tokens) <= 2 and tokens:
-        return "conversational"
-
-    return "factual"
-
-
-def chunk_text(text: str, chunk_size: int = 900, overlap: int = 150) -> list[str]:
-    content = text.strip()
-    if not content:
+def chunk_text(text: str, chunk_size: int = 850, overlap: int = 120) -> list[str]:
+    text = text.strip()
+    if not text:
         return []
 
     chunks = []
     start = 0
-    total_len = len(content)
+    text_len = len(text)
 
-    while start < total_len:
-        end = min(start + chunk_size, total_len)
-        chunk = content[start:end].strip()
+    while start < text_len:
+        end = min(start + chunk_size, text_len)
+        chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
-        if end == total_len:
+
+        if end == text_len:
             break
+
         start = max(end - overlap, 0)
 
     return chunks
 
 
-def score_chunk(question: str, chunk: str, page_title: str = "") -> int:
-    query_tokens = [token for token in tokenize(question) if len(token) > 2]
-    haystack = normalize(f"{page_title} {chunk}")
-    title_haystack = normalize(page_title)
+def score_chunk(question: str, chunk: str, page_title: str = "", page_url: str = "") -> int:
+    q = normalize(question)
+    q_tokens = tokenize(question)
+    hay = normalize(page_title + " " + page_url + " " + chunk)
 
-    freq = Counter()
-    for token in query_tokens:
-        if token in haystack:
-            freq[token] += 1
+    score = 0
 
-    score = sum(freq.values())
-    score += sum(1 for token in query_tokens if token in title_haystack) * 2
+    for token in q_tokens:
+        if token in hay:
+            score += 2
 
-    intent, _ = detect_intent(question)
-    if intent != "general" and intent in haystack:
+    # boost general pentru titlu si url
+    if any(tok in normalize(page_title) for tok in q_tokens):
         score += 3
+
+    if any(tok in normalize(page_url) for tok in q_tokens):
+        score += 3
+
+    # boost special pe categorii importante
+    if "orar" in q:
+        if "orar" in normalize(page_title):
+            score += 8
+        if "/orare" in normalize(page_url):
+            score += 12
+        if "/orar" in normalize(page_url):
+            score += 10
+
+    if "burs" in q:
+        if "burs" in normalize(page_title):
+            score += 8
+        if "/burse" in normalize(page_url):
+            score += 12
+
+    if "contact" in q or "secretariat" in q or "program" in q:
+        if "contact" in normalize(page_title) or "secretariat" in normalize(page_title):
+            score += 8
+        if "/contact" in normalize(page_url):
+            score += 12
+
+    if "admitere" in q:
+        if "admitere" in normalize(page_title):
+            score += 8
+        if "/admitere" in normalize(page_url):
+            score += 12
+
+    if "student" in q:
+        if "/studenti" in normalize(page_url):
+            score += 8
 
     return score
 
 
-def rank_chunks(question: str, pages: list[dict], top_k: int = 5) -> list[dict]:
+def rank_chunks(question: str, pages: list[dict], top_k: int = 3) -> list[dict]:
     scored = []
 
     for page in pages:
@@ -156,16 +95,14 @@ def rank_chunks(question: str, pages: list[dict], top_k: int = 5) -> list[dict]:
         page_text = page.get("text", "")
 
         for chunk in chunk_text(page_text):
-            score = score_chunk(question, chunk, page_title=page_title)
+            score = score_chunk(question, chunk, page_title, page_url)
             if score > 0:
-                scored.append(
-                    {
-                        "score": score,
-                        "title": page_title,
-                        "url": page_url,
-                        "chunk": chunk,
-                    }
-                )
+                scored.append({
+                    "score": score,
+                    "title": page_title,
+                    "url": page_url,
+                    "chunk": chunk
+                })
 
-    scored.sort(key=lambda item: item["score"], reverse=True)
+    scored.sort(key=lambda x: x["score"], reverse=True)
     return scored[:top_k]

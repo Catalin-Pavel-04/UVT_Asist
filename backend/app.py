@@ -1,18 +1,27 @@
-from __future__ import annotations
-
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
 from flask_cors import CORS
+from urllib.parse import urljoin
 
 from faculties import FACULTIES
-from live_fetch import extract_candidate_links, fetch_page
-from llm_client import ask_llm
+from live_fetch import fetch_page, extract_candidate_links
+from retriever import rank_chunks
 from prompts import SYSTEM_PROMPT, build_user_prompt
-from retriever import classify_question, rank_chunks
+from llm_client import ask_llm
 
 app = Flask(__name__)
 CORS(app)
 
-FACULTY_MAP = {faculty["id"]: faculty for faculty in FACULTIES}
+FACULTY_MAP = {f["id"]: f for f in FACULTIES}
+
+PRIORITY_PATHS = [
+    "/orare/",
+    "/orar/",
+    "/studenti/",
+    "/contact/",
+    "/admitere/",
+    "/burse/",
+    "/secretariat/"
+]
 
 
 @app.get("/health")
@@ -22,7 +31,7 @@ def health():
 
 @app.get("/faculties")
 def faculties():
-    return {"faculties": [{"id": faculty["id"], "name": faculty["name"]} for faculty in FACULTIES]}
+    return {"faculties": [{"id": f["id"], "name": f["name"]} for f in FACULTIES]}
 
 
 def get_candidate_pages(faculty_id: str) -> list[str]:
@@ -30,46 +39,40 @@ def get_candidate_pages(faculty_id: str) -> list[str]:
     base_urls = faculty["base_urls"]
 
     candidates = []
+
     for base in base_urls:
         candidates.append(base)
-        candidates.extend(extract_candidate_links(base, base_urls, max_links=12))
+
+        for path in PRIORITY_PATHS:
+            candidates.append(urljoin(base, path.lstrip("/")))
+
+        candidates.extend(extract_candidate_links(base, base_urls, max_links=20))
 
     seen = set()
     unique = []
+
     for url in candidates:
         if url not in seen:
             unique.append(url)
             seen.add(url)
 
-    return unique[:12]
+    return unique[:20]
 
 
-def fetch_ranked_chunks(question: str, faculty_id: str) -> list[dict]:
-    candidate_urls = get_candidate_pages(faculty_id)
-    pages = []
+def unique_sources_from_chunks(chunks: list[dict]) -> list[dict]:
+    seen = set()
+    result = []
 
-    for url in candidate_urls[:6]:
-        page = fetch_page(url)
-        if page.get("text"):
-            pages.append(page)
+    for c in chunks:
+        url = c["url"]
+        if url not in seen:
+            result.append({
+                "title": c["title"],
+                "url": c["url"]
+            })
+            seen.add(url)
 
-    return rank_chunks(question, pages, top_k=5) if pages else []
-
-
-def build_sources(top_chunks: list[dict]) -> list[dict]:
-    sources = []
-    seen_urls = set()
-
-    for chunk in top_chunks:
-        url = (chunk.get("url") or "").strip()
-        if not url or url in seen_urls:
-            continue
-
-        title = (chunk.get("title") or "").strip() or "Sursa oficiala"
-        sources.append({"title": title, "url": url})
-        seen_urls.add(url)
-
-    return sources
+    return result
 
 
 @app.post("/chat")
@@ -79,38 +82,38 @@ def chat():
     faculty_id = (data.get("faculty_id") or "uvt").strip()
 
     if not question:
-        return jsonify(
-            {
-                "answer": "Intrebarea este goala.",
-                "sources": [],
-                "matched_faculty": FACULTY_MAP["uvt"]["name"],
-            }
-        )
+        return jsonify({
+            "answer": "Întrebarea este goală",
+            "sources": [],
+            "matched_faculty": FACULTY_MAP["uvt"]["name"]
+        })
 
     faculty = FACULTY_MAP.get(faculty_id, FACULTY_MAP["uvt"])
-    query_mode = classify_question(question)
-    top_chunks = fetch_ranked_chunks(question, faculty_id) if query_mode == "factual" else []
-    sources = build_sources(top_chunks)
-    prompt = build_user_prompt(question, faculty["name"], top_chunks, query_mode)
+    candidate_urls = get_candidate_pages(faculty_id)
+
+    pages = []
+    for url in candidate_urls[:3]:
+        page = fetch_page(url)
+        if page.get("text"):
+            pages.append(page)
+
+    top_chunks = rank_chunks(question, pages, top_k=3) if pages else []
+    prompt = build_user_prompt(question, faculty["name"], top_chunks)
 
     try:
         llm_answer = ask_llm(SYSTEM_PROMPT, prompt)
-    except Exception as exc:
-        return jsonify(
-            {
-                "answer": f"Eroare la interogarea modelului Ollama: {str(exc)}",
-                "sources": sources,
-                "matched_faculty": faculty["name"],
-            }
-        )
+    except Exception as e:
+        return jsonify({
+            "answer": f"Eroare la interogarea modelului Ollama: {str(e)}",
+            "sources": unique_sources_from_chunks(top_chunks),
+            "matched_faculty": faculty["name"]
+        })
 
-    return jsonify(
-        {
-            "answer": llm_answer,
-            "sources": sources,
-            "matched_faculty": faculty["name"],
-        }
-    )
+    return jsonify({
+        "answer": llm_answer,
+        "sources": unique_sources_from_chunks(top_chunks),
+        "matched_faculty": faculty["name"]
+    })
 
 
 if __name__ == "__main__":

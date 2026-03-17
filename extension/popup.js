@@ -57,7 +57,7 @@ async function loadTheme() {
 function applyTheme(theme) {
   const isDark = theme === "dark";
   document.body.classList.toggle("dark", isDark);
-  themeToggle.textContent = isDark ? "L" : "D";
+  themeToggle.textContent = isDark ? "🌘" : "☀️";
   themeToggle.title = isDark ? "Comuta pe tema deschisa" : "Comuta pe tema inchisa";
   themeToggle.setAttribute("aria-label", themeToggle.title);
 }
@@ -111,11 +111,8 @@ function normalizeSources(sources = []) {
     });
 }
 
-function createSources(sources = []) {
-  const normalizedSources = normalizeSources(sources);
-  if (!normalizedSources.length) {
-    return null;
-  }
+function createSources(sources) {
+  if (!sources || !sources.length) return null;
 
   const block = document.createElement("div");
   block.className = "sources";
@@ -125,14 +122,13 @@ function createSources(sources = []) {
   title.textContent = "Surse";
   block.appendChild(title);
 
-  normalizedSources.forEach((source) => {
+  sources.forEach((source) => {
     const card = document.createElement("div");
     card.className = "source-card";
 
     const label = document.createElement("div");
     label.className = "source-label";
-    label.textContent = source.title;
-    card.appendChild(label);
+    label.textContent = source.title || "Sursă oficială";
 
     const link = document.createElement("a");
     link.className = "source-link";
@@ -140,8 +136,9 @@ function createSources(sources = []) {
     link.target = "_blank";
     link.rel = "noreferrer";
     link.textContent = source.url;
-    card.appendChild(link);
 
+    card.appendChild(label);
+    card.appendChild(link);
     block.appendChild(card);
   });
 
