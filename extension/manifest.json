@@ -1,6 +1,6 @@
 {
   "name": "UVT Asist",
-  "description": "Asistent AI pentru studenții UVT: răspunsuri scurte, surse și context de sesiune.",
+  "description": "Asistent pentru studentii UVT",
   "version": "0.2.0",
   "manifest_version": 3,
   "action": {
@@ -13,7 +13,9 @@
   ],
   "host_permissions": [
     "http://127.0.0.1:5000/*",
-    "http://localhost:5000/*"
+    "http://localhost:5000/*",
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "background.js"
