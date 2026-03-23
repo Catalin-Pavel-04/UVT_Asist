@@ -24,6 +24,10 @@ const meta = document.getElementById("meta");
 const emptyState = document.getElementById("emptyState");
 const statusDot = document.getElementById("statusDot");
 const themeToggle = document.getElementById("themeToggle");
+const quickActionChips = Array.from(document.querySelectorAll(".chip"));
+const MAX_HISTORY_MESSAGES = 10;
+let isSending = false;
+let conversationHistory = [];
 
 function esc(value) {
   return String(value)
@@ -47,6 +51,99 @@ function scrollToBottom() {
 
 function setStatus(online) {
   statusDot.classList.toggle("online", online);
+}
+
+function getHistoryStorageKey(facultyId) {
+  return `chatHistory:${facultyId || "uvt"}`;
+}
+
+function normalizeHistoryEntry(entry) {
+  if (!entry || (entry.role !== "user" && entry.role !== "assistant")) {
+    return null;
+  }
+
+  const text = typeof entry.text === "string"
+    ? entry.text.trim()
+    : typeof entry.content === "string"
+      ? entry.content.trim()
+      : "";
+
+  if (!text) {
+    return null;
+  }
+
+  return {
+    role: entry.role,
+    text,
+    sources: entry.role === "assistant" ? normalizeSources(entry.sources || []) : []
+  };
+}
+
+function normalizeConversationHistory(entries = []) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map(normalizeHistoryEntry)
+    .filter(Boolean)
+    .slice(-MAX_HISTORY_MESSAGES);
+}
+
+function buildHistoryPayload() {
+  return conversationHistory.map((entry) => ({
+    role: entry.role,
+    content: entry.text
+  }));
+}
+
+function appendHistory(role, text, sources = []) {
+  const normalized = normalizeHistoryEntry({ role, text, sources });
+  if (!normalized) {
+    return;
+  }
+
+  conversationHistory = [...conversationHistory, normalized].slice(-MAX_HISTORY_MESSAGES);
+}
+
+function renderConversationHistory() {
+  log.innerHTML = "";
+  log.appendChild(emptyState);
+
+  conversationHistory.forEach((entry) => {
+    if (entry.role === "user") {
+      addUserMessage(entry.text);
+    } else {
+      addBotMessage(entry.text, entry.sources);
+    }
+  });
+
+  toggleEmptyState();
+}
+
+async function loadConversationHistory(facultyId) {
+  const historyKey = getHistoryStorageKey(facultyId);
+  const stored = await chrome.storage.local.get([historyKey]);
+  conversationHistory = normalizeConversationHistory(stored[historyKey] || []);
+  renderConversationHistory();
+}
+
+async function saveConversationHistory(facultyId) {
+  const historyKey = getHistoryStorageKey(facultyId);
+  await chrome.storage.local.set({
+    [historyKey]: conversationHistory
+  });
+}
+
+function setSendingState(sending) {
+  isSending = sending;
+  btn.disabled = sending;
+  input.disabled = sending;
+  facultySelect.disabled = sending;
+
+  quickActionChips.forEach((chip) => {
+    chip.disabled = sending;
+  });
 }
 
 async function loadTheme() {
@@ -233,15 +330,21 @@ async function loadFaculties() {
 facultySelect.addEventListener("change", async () => {
   await chrome.storage.local.set({ facultyId: facultySelect.value });
   updateFacultyBadge();
+  meta.textContent = "";
+  await loadConversationHistory(facultySelect.value);
 });
 
 async function sendMessage(prefilledQuestion = null) {
+  if (isSending) {
+    return;
+  }
+
   const question = (prefilledQuestion ?? input.value).trim();
   if (!question) {
     return;
   }
 
-  btn.disabled = true;
+  setSendingState(true);
   addUserMessage(question);
   input.value = "";
   addLoadingMessage();
@@ -249,6 +352,7 @@ async function sendMessage(prefilledQuestion = null) {
   try {
     const stored = await chrome.storage.local.get(["facultyId"]);
     const facultyId = stored.facultyId || facultySelect.value || "uvt";
+    const history = buildHistoryPayload();
 
     const response = await fetch(`${BACKEND_URL}/chat`, {
       method: "POST",
@@ -257,7 +361,8 @@ async function sendMessage(prefilledQuestion = null) {
       },
       body: JSON.stringify({
         question,
-        faculty_id: facultyId
+        faculty_id: facultyId,
+        history
       })
     });
 
@@ -279,6 +384,9 @@ async function sendMessage(prefilledQuestion = null) {
     removeLoadingMessage();
     meta.textContent = metaParts.join(" | ");
     addBotMessage(data.answer || "Nu exista raspuns disponibil.", sources);
+    appendHistory("user", question);
+    appendHistory("assistant", data.answer || "Nu exista raspuns disponibil.", sources);
+    await saveConversationHistory(facultyId);
     setStatus(true);
   } catch (error) {
     removeLoadingMessage();
@@ -286,7 +394,7 @@ async function sendMessage(prefilledQuestion = null) {
     addBotMessage("Nu m-am putut conecta la backend-ul Flask.");
     setStatus(false);
   } finally {
-    btn.disabled = false;
+    setSendingState(false);
   }
 }
 
@@ -302,7 +410,7 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
-document.querySelectorAll(".chip").forEach((chip) => {
+quickActionChips.forEach((chip) => {
   chip.addEventListener("click", () => {
     input.value = chip.dataset.q;
     sendMessage();
@@ -313,5 +421,5 @@ document.querySelectorAll(".chip").forEach((chip) => {
   await loadTheme();
   await checkBackend();
   await loadFaculties();
-  toggleEmptyState();
+  await loadConversationHistory(facultySelect.value);
 }());

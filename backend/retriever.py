@@ -45,14 +45,12 @@ def score_chunk(question: str, chunk: str, page_title: str = "", page_url: str =
         if token in hay:
             score += 2
 
-    # boost general pentru titlu si url
     if any(tok in normalize(page_title) for tok in q_tokens):
         score += 3
 
     if any(tok in normalize(page_url) for tok in q_tokens):
         score += 3
 
-    # boost special pe categorii importante
     if "orar" in q:
         if "orar" in normalize(page_title):
             score += 8
@@ -86,23 +84,44 @@ def score_chunk(question: str, chunk: str, page_title: str = "", page_url: str =
     return score
 
 
-def rank_chunks(question: str, pages: list[dict], top_k: int = 3) -> list[dict]:
-    scored = []
-
+def build_page_chunks(pages: list[dict]) -> list[dict]:
+    built_chunks = []
     for page in pages:
         page_title = page.get("title", "")
         page_url = page.get("url", "")
         page_text = page.get("text", "")
 
         for chunk in chunk_text(page_text):
-            score = score_chunk(question, chunk, page_title, page_url)
-            if score > 0:
-                scored.append({
-                    "score": score,
-                    "title": page_title,
-                    "url": page_url,
-                    "chunk": chunk
-                })
+            built_chunks.append({
+                "title": page_title,
+                "url": page_url,
+                "chunk": chunk
+            })
+
+    return built_chunks
+
+
+def rank_prebuilt_chunks(question: str, chunks: list[dict], top_k: int = 3) -> list[dict]:
+    scored = []
+
+    for item in chunks:
+        score = score_chunk(
+            question,
+            item.get("chunk", ""),
+            item.get("title", ""),
+            item.get("url", ""),
+        )
+        if score > 0:
+            scored.append({
+                "score": score,
+                "title": item.get("title", ""),
+                "url": item.get("url", ""),
+                "chunk": item.get("chunk", "")
+            })
 
     scored.sort(key=lambda x: x["score"], reverse=True)
     return scored[:top_k]
+
+
+def rank_chunks(question: str, pages: list[dict], top_k: int = 3) -> list[dict]:
+    return rank_prebuilt_chunks(question, build_page_chunks(pages), top_k=top_k)

@@ -1,0 +1,2 @@
+paddleocr
+chardet<6
