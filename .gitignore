@@ -1,4 +1,4 @@
-backend/ocr-venv/
+backend/.ocr-venv/
 backend/.venv/
 backend/.env
 **/__pycache__/
