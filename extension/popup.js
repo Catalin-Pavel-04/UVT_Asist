@@ -15,6 +15,9 @@ const FALLBACK_FACULTIES = [
   { id: "fsgc", name: "Facultatea de Stiinte ale Guvernarii si Comunicarii" }
 ];
 
+const MAX_HISTORY_MESSAGES = 10;
+const RECENT_QUESTIONS_KEY = "recentQuestions";
+
 const log = document.getElementById("log");
 const input = document.getElementById("q");
 const btn = document.getElementById("send");
@@ -24,8 +27,9 @@ const meta = document.getElementById("meta");
 const emptyState = document.getElementById("emptyState");
 const statusDot = document.getElementById("statusDot");
 const themeToggle = document.getElementById("themeToggle");
+const recentQuestionsEl = document.getElementById("recentQuestions");
 const quickActionChips = Array.from(document.querySelectorAll(".chip"));
-const MAX_HISTORY_MESSAGES = 10;
+
 let isSending = false;
 let conversationHistory = [];
 
@@ -113,9 +117,10 @@ function renderConversationHistory() {
   conversationHistory.forEach((entry) => {
     if (entry.role === "user") {
       addUserMessage(entry.text);
-    } else {
-      addBotMessage(entry.text, entry.sources);
+      return;
     }
+
+    addBotMessage(entry.text, entry.sources);
   });
 
   toggleEmptyState();
@@ -154,7 +159,7 @@ async function loadTheme() {
 function applyTheme(theme) {
   const isDark = theme === "dark";
   document.body.classList.toggle("dark", isDark);
-  themeToggle.textContent = isDark ? "🌘" : "☀️";
+  themeToggle.textContent = isDark ? "L" : "D";
   themeToggle.title = isDark ? "Comuta pe tema deschisa" : "Comuta pe tema inchisa";
   themeToggle.setAttribute("aria-label", themeToggle.title);
 }
@@ -208,8 +213,20 @@ function normalizeSources(sources = []) {
     });
 }
 
+function formatSourceUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(/\/$/, "") || "/";
+    return `${parsed.hostname}${path}`;
+  } catch (error) {
+    return url;
+  }
+}
+
 function createSources(sources) {
-  if (!sources || !sources.length) return null;
+  if (!sources || !sources.length) {
+    return null;
+  }
 
   const block = document.createElement("div");
   block.className = "sources";
@@ -225,20 +242,96 @@ function createSources(sources) {
 
     const label = document.createElement("div");
     label.className = "source-label";
-    label.textContent = source.title || "Sursă oficială";
+    label.textContent = source.title || "Sursa oficiala";
 
     const link = document.createElement("a");
     link.className = "source-link";
     link.href = source.url;
     link.target = "_blank";
     link.rel = "noreferrer";
-    link.textContent = source.url;
+    link.textContent = formatSourceUrl(source.url);
+    link.title = source.url;
 
     card.appendChild(label);
     card.appendChild(link);
     block.appendChild(card);
   });
 
+  return block;
+}
+
+async function postFeedback(payload) {
+  const response = await fetch(`${BACKEND_URL}/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+}
+
+function createFeedbackActions(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  const block = document.createElement("div");
+  block.className = "feedback-actions";
+
+  const label = document.createElement("span");
+  label.className = "feedback-label";
+  label.textContent = "Feedback";
+
+  const positiveBtn = document.createElement("button");
+  positiveBtn.type = "button";
+  positiveBtn.className = "feedback-btn";
+  positiveBtn.textContent = "Util";
+
+  const negativeBtn = document.createElement("button");
+  negativeBtn.type = "button";
+  negativeBtn.className = "feedback-btn";
+  negativeBtn.textContent = "Inexact";
+
+  const state = document.createElement("span");
+  state.className = "feedback-state";
+
+  async function sendFeedback(value) {
+    positiveBtn.disabled = true;
+    negativeBtn.disabled = true;
+    state.textContent = "...";
+
+    try {
+      await postFeedback({
+        ...payload,
+        feedback: value,
+        created_at: new Date().toISOString()
+      });
+      state.textContent = "Salvat";
+      setStatus(true);
+    } catch (error) {
+      state.textContent = "Netrimis";
+      positiveBtn.disabled = false;
+      negativeBtn.disabled = false;
+      setStatus(false);
+    }
+  }
+
+  positiveBtn.addEventListener("click", () => {
+    sendFeedback("positive");
+  });
+
+  negativeBtn.addEventListener("click", () => {
+    sendFeedback("negative");
+  });
+
+  block.appendChild(label);
+  block.appendChild(positiveBtn);
+  block.appendChild(negativeBtn);
+  block.appendChild(state);
   return block;
 }
 
@@ -249,13 +342,18 @@ function addUserMessage(text) {
   scrollToBottom();
 }
 
-function addBotMessage(text, sources = []) {
+function addBotMessage(text, sources = [], feedbackPayload = null) {
   const msg = createMessage("bot", "UVT Asist", esc(text));
   log.appendChild(msg);
 
   const sourceBlock = createSources(sources);
   if (sourceBlock) {
     log.appendChild(sourceBlock);
+  }
+
+  const feedbackBlock = createFeedbackActions(feedbackPayload);
+  if (feedbackBlock) {
+    log.appendChild(feedbackBlock);
   }
 
   toggleEmptyState();
@@ -279,6 +377,53 @@ function removeLoadingMessage() {
   if (node) {
     node.remove();
   }
+}
+
+function formatConfidence(confidence) {
+  const value = typeof confidence === "string" && confidence.trim()
+    ? confidence.trim().toLowerCase()
+    : "unknown";
+
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+async function saveRecentQuestion(question) {
+  const normalizedQuestion = String(question || "").trim();
+  if (!normalizedQuestion) {
+    return;
+  }
+
+  const stored = await chrome.storage.local.get([RECENT_QUESTIONS_KEY]);
+  const recent = Array.isArray(stored[RECENT_QUESTIONS_KEY]) ? stored[RECENT_QUESTIONS_KEY] : [];
+  const next = [normalizedQuestion, ...recent.filter((item) => item !== normalizedQuestion)].slice(0, 5);
+  await chrome.storage.local.set({ [RECENT_QUESTIONS_KEY]: next });
+  renderRecentQuestions(next);
+}
+
+async function loadRecentQuestions() {
+  const stored = await chrome.storage.local.get([RECENT_QUESTIONS_KEY]);
+  return Array.isArray(stored[RECENT_QUESTIONS_KEY]) ? stored[RECENT_QUESTIONS_KEY] : [];
+}
+
+function renderRecentQuestions(questions = []) {
+  if (!recentQuestionsEl) {
+    return;
+  }
+
+  recentQuestionsEl.innerHTML = "";
+
+  questions.forEach((question) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "recent-item";
+    item.textContent = question;
+    item.title = question;
+    item.addEventListener("click", () => {
+      input.value = question;
+      sendMessage(question);
+    });
+    recentQuestionsEl.appendChild(item);
+  });
 }
 
 async function checkBackend() {
@@ -322,6 +467,7 @@ async function loadFaculties() {
 
     const data = await response.json();
     populateFaculties(data.faculties || FALLBACK_FACULTIES, saved);
+    setStatus(true);
   } catch (error) {
     populateFaculties(FALLBACK_FACULTIES, saved);
   }
@@ -343,6 +489,8 @@ async function sendMessage(prefilledQuestion = null) {
   if (!question) {
     return;
   }
+
+  await saveRecentQuestion(question);
 
   setSendingState(true);
   addUserMessage(question);
@@ -372,20 +520,31 @@ async function sendMessage(prefilledQuestion = null) {
 
     const data = await response.json();
     const sources = normalizeSources(data.sources || []);
-    const metaParts = [];
+    const answer = data.answer || "Nu exista raspuns disponibil.";
+    const metaParts = [
+      `Facultate: ${data.matched_faculty || "UVT"}`,
+      `Confidence: ${formatConfidence(data.confidence)}`
+    ];
 
-    if (data.matched_faculty) {
-      metaParts.push(`Facultate: ${data.matched_faculty}`);
-    }
-    if (sources.length) {
-      metaParts.push(`Surse: ${sources.length}`);
+    if (data.live_verified) {
+      metaParts.push("Live verified");
     }
 
     removeLoadingMessage();
-    meta.textContent = metaParts.join(" | ");
-    addBotMessage(data.answer || "Nu exista raspuns disponibil.", sources);
+    meta.textContent = metaParts.join(" \u2022 ");
+    addBotMessage(answer, sources, {
+      source: "popup",
+      question,
+      answer,
+      faculty_id: facultyId,
+      matched_faculty: data.matched_faculty || "UVT",
+      confidence: data.confidence || "unknown",
+      live_verified: Boolean(data.live_verified),
+      sources
+    });
+
     appendHistory("user", question);
-    appendHistory("assistant", data.answer || "Nu exista raspuns disponibil.", sources);
+    appendHistory("assistant", answer, sources);
     await saveConversationHistory(facultyId);
     setStatus(true);
   } catch (error) {
@@ -422,4 +581,5 @@ quickActionChips.forEach((chip) => {
   await checkBackend();
   await loadFaculties();
   await loadConversationHistory(facultySelect.value);
+  renderRecentQuestions(await loadRecentQuestions());
 }());

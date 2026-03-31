@@ -1,3 +1,4 @@
+import os
 import re
 import threading
 import time
@@ -32,7 +33,7 @@ MAX_PDF_PAGES = 12
 
 PAGE_CACHE = {}
 LINK_CACHE = {}
-CACHE_TTL = 300  # 5 minute
+CACHE_TTL = max(60, int(os.getenv("LIVE_FETCH_CACHE_TTL", "300")))
 SESSION_LOCAL = threading.local()
 CACHE_LOCK = threading.Lock()
 NON_HTML_LINK_PREFIXES = ("#", "mailto:", "tel:", "javascript:")
@@ -278,7 +279,15 @@ def fetch_page(url: str, timeout: int = 10) -> dict:
         data = {
             "url": url,
             "title": title,
-            "text": text[:MAX_TEXT_LENGTH]
+            "text": text[:MAX_TEXT_LENGTH],
+            "type": (
+                "html" if is_html_response(content_type, url) else
+                "pdf" if is_pdf_response(content_type, url) else
+                "docx" if is_docx_response(content_type, url) else
+                "text" if is_text_response(content_type, url) else
+                "image" if is_ocr_image_response(content_type, url) else
+                "unknown"
+            ),
         }
 
         set_cached(PAGE_CACHE, cache_key, data)
@@ -288,7 +297,8 @@ def fetch_page(url: str, timeout: int = 10) -> dict:
             "url": url,
             "title": url,
             "text": "",
-            "error": str(e)
+            "error": str(e),
+            "type": "error",
         }
 
 

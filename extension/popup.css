@@ -315,6 +315,42 @@ input:focus {
   background: #ffffff;
 }
 
+.recent {
+  margin-top: 2px;
+  margin-bottom: 10px;
+}
+
+.recent-title {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.recent-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recent-item {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-item:hover {
+  background: #ffffff;
+}
+
 .composer {
   display: flex;
   gap: 8px;
@@ -372,6 +408,39 @@ input:focus {
   animation-delay: 0.3s;
 }
 
+.feedback-actions {
+  width: 100%;
+  max-width: 88%;
+  margin-top: -4px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 4px;
+}
+
+.feedback-label,
+.feedback-state {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.feedback-btn {
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.feedback-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
 @keyframes pulse {
   0%, 80%, 100% {
     opacity: 0.35;
@@ -412,13 +481,17 @@ body.dark .theme-toggle,
 body.dark select,
 body.dark .composer input,
 body.dark .chip,
-body.dark .source-card {
+body.dark .source-card,
+body.dark .recent-item,
+body.dark .feedback-btn {
   background: #1e293b;
   color: var(--text);
 }
 
 body.dark .theme-toggle:hover,
-body.dark .chip:hover {
+body.dark .chip:hover,
+body.dark .recent-item:hover,
+body.dark .feedback-btn:hover {
   background: #273449;
 }
 
