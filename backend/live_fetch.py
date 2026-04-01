@@ -8,7 +8,6 @@ from urllib.parse import unquote
 
 import requests
 from bs4 import BeautifulSoup
-from docx import Document
 from ocr_client import (
     is_paddle_ocr_enabled,
     is_supported_ocr_image_extension,
@@ -16,9 +15,18 @@ from ocr_client import (
     run_paddle_ocr_on_pdf,
     should_run_pdf_ocr,
 )
-from pypdf import PdfReader
 from requests.adapters import HTTPAdapter
 from urllib.parse import urljoin, urlparse
+
+try:
+    from docx import Document
+except ModuleNotFoundError:
+    Document = None
+
+try:
+    from pypdf import PdfReader
+except ModuleNotFoundError:
+    PdfReader = None
 
 HEADERS = {
     "User-Agent": "UVT_Asist/1.0"
@@ -174,6 +182,9 @@ def truncate_text(text: str) -> str:
 
 
 def extract_pdf_text(content: bytes) -> str:
+    if PdfReader is None:
+        return ""
+
     reader = PdfReader(BytesIO(content))
     pages = []
 
@@ -208,6 +219,9 @@ def extract_image_text(content: bytes, url: str) -> str:
 
 
 def extract_docx_text(content: bytes) -> str:
+    if Document is None:
+        return ""
+
     document = Document(BytesIO(content))
     paragraphs = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
 

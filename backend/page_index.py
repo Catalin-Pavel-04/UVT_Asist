@@ -35,7 +35,7 @@ def detect_page_type(url: str, title: str, text: str) -> str:
         return "admitere"
     if any(token in hay for token in ("studenti", "/studenti")):
         return "studenti"
-    if any(token in hay for token in ("regulament", "regulamente")):
+    if any(token in hay for token in ("regulament", "regulamente", "metodologie", "procedura", "proceduri")):
         return "regulamente"
 
     return "general"

@@ -11,7 +11,12 @@ from io import BytesIO
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pypdf import PdfReader, PdfWriter
+
+try:
+    from pypdf import PdfReader, PdfWriter
+except ModuleNotFoundError:
+    PdfReader = None
+    PdfWriter = None
 
 ENV_FILE = Path(__file__).with_name(".env")
 OCR_SCRIPT = Path(__file__).parent / "scripts" / "paddle_ocr_extract.py"
@@ -99,6 +104,8 @@ def _build_ocr_subprocess_env() -> dict[str, str]:
 
 def _truncate_pdf_for_ocr(content: bytes) -> bytes:
     max_pages = get_paddle_ocr_max_pages()
+    if PdfReader is None or PdfWriter is None:
+        return content
 
     try:
         reader = PdfReader(BytesIO(content))

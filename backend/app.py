@@ -1,7 +1,6 @@
 import json
 import re
 import threading
-import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +14,7 @@ from live_fetch import fetch_page
 from llm_client import ask_llm
 from page_index import get_index_status, load_index
 from prompts import SYSTEM_PROMPT, build_user_prompt
-from retriever import compute_confidence, detect_intent, rank_chunks, rank_index
+from retriever import compute_confidence, detect_intent, normalize as normalize_retrieval_text, rank_chunks, rank_index
 
 app = Flask(__name__)
 CORS(app)
@@ -50,6 +49,9 @@ SPECIFIC_QUERY_HINTS = {
     "studenti",
     "regulament",
     "regulamente",
+    "metodologie",
+    "procedura",
+    "proceduri",
     "cazare",
     "taxe",
     "taxa",
@@ -77,6 +79,9 @@ MAX_HISTORY_CHARS = 500
 
 LOG_FILE = Path(__file__).with_name("feedback_log.jsonl")
 FEEDBACK_LOCK = threading.Lock()
+FACULTY_EXTRA_ALIASES = {
+    "info": {"fmi", "fac de info", "facultatea de info"},
+}
 
 
 @app.get("/health")
@@ -183,8 +188,7 @@ def get_faculty(faculty_id: str) -> dict:
 
 
 def normalize_match_text(text: str) -> str:
-    normalized = unicodedata.normalize("NFKD", text.lower())
-    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = normalize_retrieval_text(text)
     normalized = re.sub(r"[^a-z0-9\s-]", " ", normalized)
     return re.sub(r"\s+", " ", normalized).strip()
 
@@ -200,6 +204,7 @@ def build_faculty_aliases() -> dict[str, set[str]]:
             normalized_name,
             normalized_short_name,
         }
+        faculty_aliases.update(FACULTY_EXTRA_ALIASES.get(faculty["id"], set()))
 
         for base_url in faculty["base_urls"]:
             hostname = (urlparse(base_url).hostname or "").lower()

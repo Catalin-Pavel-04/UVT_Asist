@@ -3,18 +3,40 @@ import unicodedata
 
 INTENT_TO_PAGE_TYPES = {
     "orar": ["orar", "studenti"],
-    "burse": ["burse", "studenti"],
+    "burse": ["burse", "studenti", "regulamente"],
     "contact": ["contact"],
     "admitere": ["admitere"],
     "regulamente": ["regulamente", "studenti"],
-    "general": ["general", "studenti", "contact", "admitere", "burse", "orar"],
+    "general": ["general", "studenti", "contact", "admitere", "burse", "orar", "regulamente"],
 }
+COMMON_TEXT_PATTERNS = (
+    (r"\binformatia\b", "informatica"),
+    (r"\binformatici\b", "informatica"),
+    (r"\binformaticii\b", "informatica"),
+    (r"\bfmi\b", "informatica"),
+    (r"\bfac(?:ultatea)?(?:\s+de)?\s+info(?:rmatica)?\b", "informatica"),
+    (r"\bsecretaruat\b", "secretariat"),
+    (r"\bsecreteriat\b", "secretariat"),
+    (r"\bbursw\b", "burse"),
+    (r"\badmiterw\b", "admitere"),
+    (r"\boraru\b", "orar"),
+)
+
+
+def normalize_common_terms(text: str) -> str:
+    normalized = f" {text} "
+
+    for pattern, replacement in COMMON_TEXT_PATTERNS:
+        normalized = re.sub(pattern, replacement, normalized)
+
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def normalize(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower())
     normalized = "".join(char for char in normalized if not unicodedata.combining(char))
-    return re.sub(r"\s+", " ", normalized).strip()
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalize_common_terms(normalized)
 
 
 def tokenize(text: str) -> list[str]:
@@ -34,7 +56,7 @@ def detect_intent(question: str) -> str:
         return "contact"
     if "admitere" in question_text or "inscriere" in question_text:
         return "admitere"
-    if "regulament" in question_text:
+    if "regulament" in question_text or "metodologie" in question_text or "procedura" in question_text:
         return "regulamente"
 
     return "general"
@@ -129,7 +151,7 @@ def score_index_item(question: str, item: dict, selected_faculty: str, intent: s
         score += 12
     if intent == "admitere" and ("/admitere" in url or "admitere" in title):
         score += 12
-    if intent == "regulamente" and ("regulament" in title or "regulament" in url):
+    if intent == "regulamente" and any(keyword in f"{title} {url}" for keyword in ("regulament", "metodolog", "procedur")):
         score += 12
 
     return max(score, 0)
@@ -183,7 +205,10 @@ def score_chunk(question: str, chunk: str, page_title: str = "", page_url: str =
         score += 12
     if intent == "admitere" and ("/admitere" in url_norm or "admitere" in title_norm):
         score += 12
-    if intent == "regulamente" and ("regulament" in title_norm or "regulament" in url_norm):
+    if intent == "regulamente" and any(
+        keyword in f"{title_norm} {url_norm}"
+        for keyword in ("regulament", "metodolog", "procedur")
+    ):
         score += 12
 
     return score
