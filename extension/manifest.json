@@ -1,7 +1,7 @@
 {
   "name": "UVT Asist",
-  "description": "Asistent pentru studentii UVT",
-  "version": "0.2.0",
+  "description": "Asistent UVT cu RAG peste surse oficiale si backend Flask",
+  "version": "0.4.0",
   "manifest_version": 3,
   "action": {
     "default_title": "UVT Asist",

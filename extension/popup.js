@@ -23,12 +23,18 @@ const input = document.getElementById("q");
 const btn = document.getElementById("send");
 const facultySelect = document.getElementById("faculty");
 const facultyBadge = document.getElementById("facultyBadge");
-const meta = document.getElementById("meta");
+const confidenceBadge = document.getElementById("confidenceBadge");
+const verificationBadge = document.getElementById("verificationBadge");
+const metaLine = document.getElementById("metaLine");
 const emptyState = document.getElementById("emptyState");
+const emptyText = document.getElementById("emptyText");
 const statusDot = document.getElementById("statusDot");
 const themeToggle = document.getElementById("themeToggle");
 const recentQuestionsEl = document.getElementById("recentQuestions");
 const quickActionChips = Array.from(document.querySelectorAll(".chip"));
+const statusPanel = document.getElementById("statusPanel");
+const statusTitle = document.getElementById("statusTitle");
+const statusText = document.getElementById("statusText");
 
 let isSending = false;
 let conversationHistory = [];
@@ -55,6 +61,20 @@ function scrollToBottom() {
 
 function setStatus(online) {
   statusDot.classList.toggle("online", online);
+}
+
+function setSystemState(kind, title, text) {
+  statusPanel.className = `status-panel status-${kind}`;
+  statusTitle.textContent = title;
+  statusText.textContent = text;
+}
+
+function resetMeta() {
+  confidenceBadge.textContent = "Confidence --";
+  confidenceBadge.className = "meta-badge muted";
+  verificationBadge.textContent = "Index local";
+  verificationBadge.className = "meta-badge muted";
+  metaLine.textContent = "Raspunsurile vor prefera paginile oficiale specifice, nu homepage-uri generale.";
 }
 
 function getHistoryStorageKey(facultyId) {
@@ -201,7 +221,10 @@ function normalizeSources(sources = []) {
       title: typeof source.title === "string" && source.title.trim()
         ? source.title.trim()
         : "Sursa oficiala",
-      url: source.url.trim()
+      url: source.url.trim(),
+      faculty_id: typeof source.faculty_id === "string" ? source.faculty_id : "uvt",
+      page_type: typeof source.page_type === "string" ? source.page_type : "general",
+      verified: Boolean(source.verified)
     }))
     .filter((source) => {
       if (seen.has(source.url)) {
@@ -223,6 +246,19 @@ function formatSourceUrl(url) {
   }
 }
 
+function labelPageType(pageType) {
+  const labels = {
+    orar: "Orar",
+    burse: "Burse",
+    contact: "Contact",
+    admitere: "Admitere",
+    regulamente: "Regulamente",
+    studenti: "Studenti",
+    general: "General"
+  };
+  return labels[pageType] || "General";
+}
+
 function createSources(sources) {
   if (!sources || !sources.length) {
     return null;
@@ -233,16 +269,42 @@ function createSources(sources) {
 
   const title = document.createElement("div");
   title.className = "sources-title";
-  title.textContent = "Surse";
+  title.textContent = "Surse oficiale";
   block.appendChild(title);
 
   sources.forEach((source) => {
     const card = document.createElement("div");
     card.className = "source-card";
 
+    const header = document.createElement("div");
+    header.className = "source-header";
+
     const label = document.createElement("div");
     label.className = "source-label";
     label.textContent = source.title || "Sursa oficiala";
+
+    const pills = document.createElement("div");
+    pills.className = "source-pills";
+
+    const pageTypePill = document.createElement("span");
+    pageTypePill.className = "source-pill";
+    pageTypePill.textContent = labelPageType(source.page_type);
+    pills.appendChild(pageTypePill);
+
+    const facultyPill = document.createElement("span");
+    facultyPill.className = "source-pill";
+    facultyPill.textContent = (source.faculty_id || "uvt").toUpperCase();
+    pills.appendChild(facultyPill);
+
+    if (source.verified) {
+      const verifiedPill = document.createElement("span");
+      verifiedPill.className = "source-pill verified";
+      verifiedPill.textContent = "Live";
+      pills.appendChild(verifiedPill);
+    }
+
+    header.appendChild(label);
+    header.appendChild(pills);
 
     const link = document.createElement("a");
     link.className = "source-link";
@@ -252,7 +314,7 @@ function createSources(sources) {
     link.textContent = formatSourceUrl(source.url);
     link.title = source.url;
 
-    card.appendChild(label);
+    card.appendChild(header);
     card.appendChild(link);
     block.appendChild(card);
   });
@@ -379,12 +441,65 @@ function removeLoadingMessage() {
   }
 }
 
-function formatConfidence(confidence) {
-  const value = typeof confidence === "string" && confidence.trim()
+function formatConfidence(confidence, confidenceScore) {
+  const label = typeof confidence === "string" && confidence.trim()
     ? confidence.trim().toLowerCase()
     : "unknown";
+  const title = label.charAt(0).toUpperCase() + label.slice(1);
+  return `Confidence ${title} ${typeof confidenceScore === "number" ? `(${confidenceScore})` : ""}`.trim();
+}
 
-  return value.charAt(0).toUpperCase() + value.slice(1);
+function confidenceBadgeTone(confidence) {
+  if (confidence === "high") {
+    return "success";
+  }
+  if (confidence === "medium") {
+    return "muted";
+  }
+  return "warning";
+}
+
+function formatIntent(intent) {
+  const labels = {
+    orar: "orar",
+    burse: "burse",
+    contact: "contact",
+    admitere: "admitere",
+    regulamente: "regulamente",
+    studenti: "studenti",
+    general: "general"
+  };
+  return labels[intent] || "general";
+}
+
+function updateResultMeta(data) {
+  const confidence = data.confidence || "low";
+  const confidenceScore = typeof data.confidence_score === "number" ? data.confidence_score : 0;
+  confidenceBadge.textContent = formatConfidence(confidence, confidenceScore);
+  confidenceBadge.className = `meta-badge ${confidenceBadgeTone(confidence)}`;
+
+  if (data.live_verified) {
+    verificationBadge.textContent = "Verificare live";
+    verificationBadge.className = "meta-badge success";
+  } else {
+    verificationBadge.textContent = "Index local";
+    verificationBadge.className = "meta-badge muted";
+  }
+
+  const metaParts = [];
+  const queryProfile = data.query_profile || {};
+  metaParts.push(`Facultate: ${data.matched_faculty || "UVT"}`);
+  metaParts.push(`Intent: ${formatIntent(queryProfile.intent)}`);
+
+  if (queryProfile.policy_question) {
+    metaParts.push("Rutare: reguli/metodologii");
+  }
+
+  if (data.confidence_reason) {
+    metaParts.push(data.confidence_reason);
+  }
+
+  metaLine.textContent = metaParts.join(" • ");
 }
 
 async function saveRecentQuestion(question) {
@@ -429,15 +544,31 @@ function renderRecentQuestions(questions = []) {
 async function checkBackend() {
   try {
     const response = await fetch(`${BACKEND_URL}/health`);
-    if (response.ok) {
-      setStatus(true);
-      return true;
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
-  } catch (error) {
-  }
 
-  setStatus(false);
-  return false;
+    const data = await response.json();
+    const chunkCount = data.index?.chunk_count || 0;
+    const builtAt = data.index?.built_at || "necunoscut";
+    setStatus(true);
+    setSystemState(
+      "idle",
+      "Backend disponibil",
+      `Index local activ (${chunkCount} fragmente). Ultima build: ${builtAt}.`
+    );
+    emptyText.textContent = "Exemple: unde gasesc orarul, program secretariat, admitere, burse, reguli pentru doua burse";
+    return true;
+  } catch (error) {
+    setStatus(false);
+    setSystemState(
+      "error",
+      "Backend indisponibil",
+      "Porneste backend-ul Flask si verifica GEMINI_API_KEY daca vrei raspuns complet."
+    );
+    emptyText.textContent = "Backend-ul nu raspunde momentan. Porneste serverul Flask pentru a folosi extensia.";
+    return false;
+  }
 }
 
 function populateFaculties(faculties, selectedFacultyId) {
@@ -476,7 +607,7 @@ async function loadFaculties() {
 facultySelect.addEventListener("change", async () => {
   await chrome.storage.local.set({ facultyId: facultySelect.value });
   updateFacultyBadge();
-  meta.textContent = "";
+  resetMeta();
   await loadConversationHistory(facultySelect.value);
 });
 
@@ -491,8 +622,8 @@ async function sendMessage(prefilledQuestion = null) {
   }
 
   await saveRecentQuestion(question);
-
   setSendingState(true);
+  setSystemState("loading", "Analizez intrebarea", "Rulez rutarea pe indexul local si verific doar cele mai bune surse.");
   addUserMessage(question);
   input.value = "";
   addLoadingMessage();
@@ -521,24 +652,35 @@ async function sendMessage(prefilledQuestion = null) {
     const data = await response.json();
     const sources = normalizeSources(data.sources || []);
     const answer = data.answer || "Nu exista raspuns disponibil.";
-    const metaParts = [
-      `Facultate: ${data.matched_faculty || "UVT"}`,
-      `Confidence: ${formatConfidence(data.confidence)}`
-    ];
-
-    if (data.live_verified) {
-      metaParts.push("Live verified");
-    }
+    const confidence = data.confidence || "low";
 
     removeLoadingMessage();
-    meta.textContent = metaParts.join(" \u2022 ");
+    updateResultMeta(data);
+
+    if (confidence === "low") {
+      setSystemState(
+        "warning",
+        "Dovezi partiale",
+        "Am gasit doar potriviri limitate. Verifica in special sursele oficiale afisate."
+      );
+    } else {
+      setSystemState(
+        "success",
+        "Raspuns pregatit",
+        data.live_verified
+          ? "Sursele de top au fost reverificate live inainte de generarea raspunsului."
+          : "Raspunsul a fost generat din indexul local oficial."
+      );
+    }
+
     addBotMessage(answer, sources, {
       source: "popup",
       question,
       answer,
       faculty_id: facultyId,
       matched_faculty: data.matched_faculty || "UVT",
-      confidence: data.confidence || "unknown",
+      confidence: confidence,
+      confidence_score: data.confidence_score || 0,
       live_verified: Boolean(data.live_verified),
       sources
     });
@@ -549,7 +691,12 @@ async function sendMessage(prefilledQuestion = null) {
     setStatus(true);
   } catch (error) {
     removeLoadingMessage();
-    meta.textContent = "Backend indisponibil";
+    resetMeta();
+    setSystemState(
+      "error",
+      "Nu m-am putut conecta la backend",
+      "Porneste backend-ul Flask si reincarca extensia daca problema persista."
+    );
     addBotMessage("Nu m-am putut conecta la backend-ul Flask.");
     setStatus(false);
   } finally {
@@ -564,7 +711,8 @@ btn.addEventListener("click", () => {
 themeToggle.addEventListener("click", toggleTheme);
 
 input.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
     sendMessage();
   }
 });
@@ -578,6 +726,7 @@ quickActionChips.forEach((chip) => {
 
 (async function init() {
   await loadTheme();
+  resetMeta();
   await checkBackend();
   await loadFaculties();
   await loadConversationHistory(facultySelect.value);

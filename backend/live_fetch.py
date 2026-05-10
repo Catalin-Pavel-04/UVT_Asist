@@ -268,38 +268,39 @@ def fetch_page(url: str, timeout: int = 10) -> dict:
     try:
         response = get_session().get(url, timeout=(2, timeout))
         response.raise_for_status()
+        final_url = response.url or url
         content_type = response.headers.get("Content-Type", "")
         content_disposition = response.headers.get("Content-Disposition", "")
-        title = url
+        title = final_url
         text = ""
 
-        if is_html_response(content_type, url):
+        if is_html_response(content_type, final_url):
             soup = BeautifulSoup(response.text, "html.parser")
-            title = soup.title.get_text(strip=True) if soup.title else build_title_from_url(url)
+            title = soup.title.get_text(strip=True) if soup.title else build_title_from_url(final_url)
             text = clean_html_text(response.text)
-        elif is_pdf_response(content_type, url):
-            title = build_title_from_url(url, fallback=content_disposition)
+        elif is_pdf_response(content_type, final_url):
+            title = build_title_from_url(final_url, fallback=content_disposition)
             text = extract_pdf_text_with_fallback(response.content)
-        elif is_docx_response(content_type, url):
-            title = build_title_from_url(url, fallback=content_disposition)
+        elif is_docx_response(content_type, final_url):
+            title = build_title_from_url(final_url, fallback=content_disposition)
             text = extract_docx_text(response.content)
-        elif is_text_response(content_type, url):
-            title = build_title_from_url(url, fallback=content_disposition)
+        elif is_text_response(content_type, final_url):
+            title = build_title_from_url(final_url, fallback=content_disposition)
             text = truncate_text(response.text)
-        elif is_ocr_image_response(content_type, url):
-            title = build_title_from_url(url, fallback=content_disposition)
-            text = extract_image_text(response.content, url)
+        elif is_ocr_image_response(content_type, final_url):
+            title = build_title_from_url(final_url, fallback=content_disposition)
+            text = extract_image_text(response.content, final_url)
 
         data = {
-            "url": url,
+            "url": final_url,
             "title": title,
             "text": text[:MAX_TEXT_LENGTH],
             "type": (
-                "html" if is_html_response(content_type, url) else
-                "pdf" if is_pdf_response(content_type, url) else
-                "docx" if is_docx_response(content_type, url) else
-                "text" if is_text_response(content_type, url) else
-                "image" if is_ocr_image_response(content_type, url) else
+                "html" if is_html_response(content_type, final_url) else
+                "pdf" if is_pdf_response(content_type, final_url) else
+                "docx" if is_docx_response(content_type, final_url) else
+                "text" if is_text_response(content_type, final_url) else
+                "image" if is_ocr_image_response(content_type, final_url) else
                 "unknown"
             ),
         }
@@ -326,8 +327,9 @@ def extract_candidate_links(start_url: str, base_urls: list[str], max_links: int
     try:
         response = get_session().get(start_url, timeout=(2, timeout))
         response.raise_for_status()
+        page_url = response.url or start_url
         content_type = response.headers.get("Content-Type", "")
-        if not is_html_response(content_type, start_url):
+        if not is_html_response(content_type, page_url):
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -341,7 +343,7 @@ def extract_candidate_links(start_url: str, base_urls: list[str], max_links: int
             if href.lower().startswith(NON_HTML_LINK_PREFIXES):
                 continue
 
-            full_url = urljoin(start_url, href).split("#")[0]
+            full_url = urljoin(page_url, href).split("#")[0]
             parsed_url = urlparse(full_url)
             if parsed_url.scheme not in {"http", "https"}:
                 continue

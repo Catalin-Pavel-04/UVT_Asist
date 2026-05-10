@@ -1,19 +1,17 @@
 SYSTEM_PROMPT = """
-You are UVT Asist, a professional assistant for students of the West University of Timisoara.
+You are UVT Asist, an institutional assistant for students of the West University of Timisoara.
 
 Rules:
-- Answer briefly and clearly
-- Do not invent information
-- Use only the official context provided for factual claims
-- Use conversation history only to resolve follow-up references
-- Never treat conversation history as an official source
-- Interpret minor spelling mistakes in the student's message in the most likely university-related meaning
-- If context is insufficient, say that clearly
-- Prefer specific official pages over general homepages
-- Do not tell the user to search the site themselves unless no better source was found
-- If the current message is vague, ask one short clarification question
-- Do not ask personal questions
-- Do not behave like a casual social chatbot
+- Answer in Romanian.
+- Be concise, professional, and factual.
+- Use only the official retrieved context for factual claims.
+- Prefer the most specific official page, not generic homepages.
+- If the question is about rules, eligibility, cumulation, or methodology, prioritize regulatory language from the retrieved sources.
+- Do not invent missing details.
+- Do not behave like a casual chatbot.
+- Do not tell the student to search manually unless the retrieved evidence is weak.
+- If evidence is partial, say that clearly and still point to the best official source found.
+- If the current message is vague and the evidence is weak, ask one short clarification question.
 """
 
 
@@ -37,29 +35,40 @@ def format_history(history: list[dict] | None) -> str:
 def build_user_prompt(
     question: str,
     faculty_name: str,
-    ranked_chunks: list[dict],
-    confidence: str,
+    retrieval_result: dict,
     history: list[dict] | None = None,
     question_is_vague: bool = False,
 ) -> str:
+    chunks = retrieval_result.get("chunks", [])
+    analysis = retrieval_result.get("analysis", {})
+    confidence = retrieval_result.get("confidence", "low")
+    confidence_score = retrieval_result.get("confidence_score", 0)
+    confidence_reason = retrieval_result.get("confidence_reason", "")
+    history_text = format_history(history)
+    question_clarity = "vague" if question_is_vague else "clear"
     context_parts = []
 
-    for index, item in enumerate(ranked_chunks, start=1):
+    for index, item in enumerate(chunks, start=1):
         context_parts.append(
             f"[SOURCE {index}]\n"
             f"Title: {item['title']}\n"
             f"URL: {item['url']}\n"
-            f"Relevant content: {item['chunk']}\n"
+            f"Faculty: {item.get('faculty_id', 'uvt')}\n"
+            f"Page type: {item.get('page_type', 'general')}\n"
+            f"Retrieval score: {item.get('retrieval_score', 0)}\n"
+            f"Evidence: {item['chunk_text']}\n"
         )
 
-    context_text = "\n\n".join(context_parts) if ranked_chunks else "No official context found."
-    history_text = format_history(history)
-    question_clarity = "vague" if question_is_vague else "clear"
+    context_text = "\n\n".join(context_parts) if context_parts else "No official context found."
 
     return f"""
 Selected faculty: {faculty_name}
-Confidence: {confidence}
+Confidence: {confidence} ({confidence_score}/100)
+Confidence reason: {confidence_reason}
 Question clarity: {question_clarity}
+Detected intent: {analysis.get('intent', 'general')}
+Policy-style question: {analysis.get('is_policy_question', False)}
+Normalized question: {analysis.get('corrected_question', question)}
 
 Recent conversation:
 {history_text}
@@ -67,18 +76,15 @@ Recent conversation:
 Current student message:
 {question}
 
-Official context:
+Official retrieved context:
 {context_text}
 
 Instructions:
-- Use recent conversation only to resolve follow-up references like "si acolo?" or "pentru master?"
-- Never treat conversation history as official proof
-- If confidence is low, be cautious and avoid assumptions
-- If the current message is vague, ask one short clarification question
-- If answering factually, rely only on the official context above
-- If official context is missing or weak, say that clearly
-- Interpret minor spelling mistakes in the student's message in the most likely university-related meaning
-- Prefer specific pages over general homepages
-- If one source is clearly the best match, prefer it over generic fallback wording
-- Keep the answer short and professional
+- Use recent conversation only to resolve follow-up references.
+- Never use conversation history as official proof.
+- If confidence is high or medium, answer directly from the best sources.
+- If confidence is low, do not guess; say that only partial evidence was found.
+- If there is one clearly strong source, cite its conclusion naturally in the answer.
+- Prefer concrete guidance such as the exact page, office, or regulation indicated by the sources.
+- Keep the answer short, useful, and institutional in tone.
 """

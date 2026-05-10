@@ -1,63 +1,62 @@
 import json
+import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 from faculties import FACULTIES
-from live_fetch import fetch_page
 from llm_client import ask_llm
-from page_index import get_index_status, load_index
+from page_index import build_chunk_entries_from_pages, get_index_status, load_index
 from prompts import SYSTEM_PROMPT, build_user_prompt
-from retriever import compute_confidence, detect_intent, normalize as normalize_retrieval_text, rank_chunks, rank_index
+from retriever import (
+    analyze_query,
+    compute_confidence,
+    normalize as normalize_retrieval_text,
+    prepare_index,
+    rank_index,
+    rank_runtime_chunks,
+)
+from site_cache import get_cache_status, verify_pages
 
 app = Flask(__name__)
 CORS(app)
 
 FACULTY_MAP = {faculty["id"]: faculty for faculty in FACULTIES}
 NON_GENERAL_FACULTIES = [faculty for faculty in FACULTIES if faculty["id"] != "uvt"]
-PRIORITY_PATHS = [
-    "/orare/",
-    "/orar/",
-    "/studenti/",
-    "/contact/",
-    "/admitere/",
-    "/burse/",
-    "/secretariat/",
-]
-INTENT_PATH_HINTS = {
-    "orar": ("/orare/", "/orar/"),
-    "burse": ("/burse/",),
-    "contact": ("/contact/", "/secretariat/"),
-    "admitere": ("/admitere/",),
-    "regulamente": ("/studenti/",),
+MAX_HISTORY_MESSAGES = 10
+MAX_HISTORY_CHARS = 500
+LIVE_VERIFY_LIMIT = max(1, int(os.getenv("LIVE_VERIFY_LIMIT", "2")))
+RESPONSE_CACHE_TTL = max(60, int(os.getenv("CHAT_RESPONSE_CACHE_TTL", "300")))
+
+LOG_FILE = Path(__file__).with_name("feedback_log.jsonl")
+FEEDBACK_LOCK = threading.Lock()
+RESPONSE_CACHE_LOCK = threading.Lock()
+RESPONSE_CACHE: dict[str, dict] = {}
+
+FACULTY_EXTRA_ALIASES = {
+    "info": {"fmi", "fac de info", "facultatea de info"},
 }
 SPECIFIC_QUERY_HINTS = {
     "orar",
     "burse",
-    "bursa",
     "contact",
     "secretariat",
-    "program",
     "admitere",
-    "inscriere",
-    "studenti",
     "regulament",
-    "regulamente",
     "metodologie",
     "procedura",
-    "proceduri",
-    "cazare",
+    "studenti",
     "taxe",
-    "taxa",
-    "master",
-    "licenta",
-    "erasmus",
+    "cazare",
+    "program",
+    "telefon",
+    "email",
 }
 VAGUE_QUESTION_PATTERNS = {
     "ajutor",
@@ -69,122 +68,22 @@ VAGUE_QUESTION_PATTERNS = {
     "despre asta",
 }
 
-INDEX_RANK_LIMIT = 6
-INITIAL_LIVE_FETCH_LIMIT = 3
-EXTRA_LIVE_FETCH_LIMIT = 2
-SEED_FALLBACK_LIMIT = 3
-FETCH_WORKERS = 4
-MAX_HISTORY_MESSAGES = 10
-MAX_HISTORY_CHARS = 500
-
-LOG_FILE = Path(__file__).with_name("feedback_log.jsonl")
-FEEDBACK_LOCK = threading.Lock()
-FACULTY_EXTRA_ALIASES = {
-    "info": {"fmi", "fac de info", "facultatea de info"},
-}
-
 
 @app.get("/health")
 def health():
     return {
         "status": "ok",
         "llm_provider": "gemini",
+        "retrieval_mode": "local-index-first-rag",
         "index": get_index_status(),
+        "verification_cache": get_cache_status(),
+        "response_cache_entries": get_response_cache_size(),
     }
 
 
 @app.get("/faculties")
 def faculties():
     return {"faculties": [{"id": faculty["id"], "name": faculty["name"]} for faculty in FACULTIES]}
-
-
-def unique_urls(urls: list[str]) -> list[str]:
-    seen = set()
-    unique = []
-
-    for url in urls:
-        if not url or url in seen:
-            continue
-
-        seen.add(url)
-        unique.append(url)
-
-    return unique
-
-
-def fetch_pages(urls: list[str], max_pages: int) -> list[dict]:
-    selected_urls = unique_urls(urls[:max_pages])
-    if not selected_urls:
-        return []
-
-    with ThreadPoolExecutor(max_workers=min(FETCH_WORKERS, len(selected_urls))) as executor:
-        pages = list(executor.map(fetch_page, selected_urls))
-
-    return [page for page in pages if page.get("text")]
-
-
-def build_seed_candidate_urls(faculty_id: str) -> list[str]:
-    faculty = FACULTY_MAP.get(faculty_id, FACULTY_MAP["uvt"])
-    candidates = []
-
-    for base_url in faculty["base_urls"]:
-        for path in PRIORITY_PATHS:
-            candidates.append(urljoin(base_url, path.lstrip("/")))
-
-        candidates.append(base_url)
-
-    return unique_urls(candidates)
-
-
-def score_seed_candidate_url(question: str, url: str, base_urls: list[str]) -> int:
-    score = 0
-    normalized_url = url.lower()
-    intent = detect_intent(question)
-
-    if url in base_urls:
-        score += 2
-
-    for path_hint in INTENT_PATH_HINTS.get(intent, ()):
-        if path_hint in normalized_url:
-            score += 10
-
-    if any(priority_path in normalized_url for priority_path in PRIORITY_PATHS):
-        score += 2
-
-    return score
-
-
-def rank_seed_candidate_urls(faculty_id: str, question: str) -> list[str]:
-    faculty = FACULTY_MAP.get(faculty_id, FACULTY_MAP["uvt"])
-    base_urls = faculty["base_urls"]
-    candidates = build_seed_candidate_urls(faculty_id)
-    return sorted(
-        candidates,
-        key=lambda url: score_seed_candidate_url(question, url, base_urls),
-        reverse=True,
-    )
-
-
-def unique_sources_from_chunks(chunks: list[dict]) -> list[dict]:
-    seen = set()
-    result = []
-
-    for chunk in chunks:
-        url = chunk.get("url", "")
-        if not url or url in seen:
-            continue
-
-        result.append({
-            "title": chunk.get("title", url),
-            "url": url,
-        })
-        seen.add(url)
-
-    return result
-
-
-def get_faculty(faculty_id: str) -> dict:
-    return FACULTY_MAP.get(faculty_id, FACULTY_MAP["uvt"])
 
 
 def normalize_match_text(text: str) -> str:
@@ -248,6 +147,10 @@ def normalize_history(history) -> list[dict]:
     return normalized
 
 
+def get_faculty(faculty_id: str) -> dict:
+    return FACULTY_MAP.get(faculty_id, FACULTY_MAP["uvt"])
+
+
 def infer_faculty(requested_faculty_id: str, question: str, history: list[dict]) -> dict:
     selected_faculty = get_faculty(requested_faculty_id)
     if selected_faculty["id"] != "uvt":
@@ -302,15 +205,152 @@ def build_effective_question(question: str, history: list[dict]) -> str:
     return " ".join(context_parts)
 
 
+def get_response_cache_size() -> int:
+    now = time.time()
+    with RESPONSE_CACHE_LOCK:
+        return sum(1 for item in RESPONSE_CACHE.values() if now - item["timestamp"] < RESPONSE_CACHE_TTL)
+
+
+def build_cache_key(faculty_id: str, effective_question: str, history: list[dict], index_built_at: str | None) -> str:
+    payload = {
+        "faculty_id": faculty_id,
+        "question": normalize_match_text(effective_question),
+        "history": history[-2:],
+        "index_built_at": index_built_at,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def get_cached_response(cache_key: str) -> dict | None:
+    now = time.time()
+    with RESPONSE_CACHE_LOCK:
+        cached = RESPONSE_CACHE.get(cache_key)
+        if cached and now - cached["timestamp"] < RESPONSE_CACHE_TTL:
+            return cached["response"]
+
+    return None
+
+
+def set_cached_response(cache_key: str, response_payload: dict) -> None:
+    with RESPONSE_CACHE_LOCK:
+        RESPONSE_CACHE[cache_key] = {
+            "timestamp": time.time(),
+            "response": response_payload,
+        }
+
+
+def merge_ranked_chunks(primary_chunks: list[dict], verified_chunks: list[dict]) -> list[dict]:
+    merged = {}
+
+    for chunk in primary_chunks + verified_chunks:
+        if not chunk.get("url") or not chunk.get("chunk_text"):
+            continue
+
+        key = (chunk["url"], chunk["chunk_text"][:160])
+        previous = merged.get(key)
+        if previous is None or chunk.get("retrieval_score", 0) > previous.get("retrieval_score", 0):
+            merged[key] = dict(chunk)
+        elif chunk.get("verified"):
+            previous["verified"] = True
+
+    merged_chunks = list(merged.values())
+    merged_chunks.sort(key=lambda item: item.get("retrieval_score", 0), reverse=True)
+    return merged_chunks
+
+
+def unique_sources_from_chunks(chunks: list[dict]) -> list[dict]:
+    seen = set()
+    result = []
+
+    for chunk in chunks:
+        url = chunk.get("url", "")
+        if not url or url in seen:
+            continue
+
+        result.append({
+            "title": chunk.get("title", url),
+            "url": url,
+            "faculty_id": chunk.get("faculty_id", "uvt"),
+            "page_type": chunk.get("page_type", "general"),
+            "verified": bool(chunk.get("verified")),
+        })
+        seen.add(url)
+
+    return result
+
+
+def build_local_fallback_answer(retrieval_result: dict) -> str:
+    chunks = retrieval_result.get("chunks", [])
+    if not chunks:
+        return "Nu am gasit suficiente dovezi oficiale in indexul local pentru a formula un raspuns sigur."
+
+    best_chunk = chunks[0]
+    snippet = " ".join(str(best_chunk.get("chunk_text", "")).split())
+    snippet = snippet[:360].rsplit(" ", 1)[0].strip() if snippet else ""
+
+    if retrieval_result.get("confidence") == "low":
+        return (
+            "Am gasit doar indicii partiale in sursele oficiale. "
+            f"Cea mai relevanta pagina pare sa fie „{best_chunk.get('title', 'Sursa oficiala')}”."
+        )
+
+    if snippet:
+        return (
+            f"Cea mai relevanta sursa oficiala este „{best_chunk.get('title', 'Sursa oficiala')}”. "
+            f"Fragment util: {snippet}..."
+        )
+
+    return f"Cea mai relevanta sursa oficiala este „{best_chunk.get('title', 'Sursa oficiala')}”."
+
+
 def append_feedback_record(payload: dict) -> None:
     record = {
         "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "payload": payload,
+        "question": payload.get("question"),
+        "selected_faculty": payload.get("faculty_id"),
+        "matched_faculty": payload.get("matched_faculty"),
+        "answer": payload.get("answer"),
+        "confidence": payload.get("confidence"),
+        "confidence_score": payload.get("confidence_score"),
+        "feedback_vote": payload.get("feedback"),
+        "sources": payload.get("sources", []),
+        "source": payload.get("source", "popup"),
+        "live_verified": bool(payload.get("live_verified")),
     }
 
     with FEEDBACK_LOCK:
         with LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def live_verify_retrieval(
+    effective_question: str,
+    faculty_id: str,
+    retrieval_result: dict,
+    index_document: dict,
+) -> tuple[list[dict], bool]:
+    top_urls = [chunk.get("url") for chunk in retrieval_result.get("chunks", []) if chunk.get("url")]
+    verified_pages = verify_pages(top_urls, max_pages=LIVE_VERIFY_LIMIT)
+    if not verified_pages:
+        return retrieval_result.get("chunks", []), False
+
+    verified_chunks = build_chunk_entries_from_pages(verified_pages, FACULTIES)
+    prepared_index = prepare_index(index_document)
+    verified_result = rank_runtime_chunks(
+        verified_chunks,
+        effective_question,
+        faculty_id,
+        idf=prepared_index.get("idf", {}),
+        top_k=4,
+    )
+    verified_urls = {page.get("url") for page in verified_pages if page.get("url")}
+    merged_chunks = merge_ranked_chunks(retrieval_result.get("chunks", []), verified_result.get("chunks", []))
+
+    for chunk in merged_chunks:
+        if chunk.get("url") in verified_urls:
+            chunk["verified"] = True
+
+    return merged_chunks[:6], True
 
 
 @app.post("/chat")
@@ -322,10 +362,12 @@ def chat():
 
     if not question:
         return jsonify({
-            "answer": "Intrebarea este goala",
+            "answer": "Intrebarea este goala.",
             "sources": [],
             "matched_faculty": FACULTY_MAP["uvt"]["name"],
             "confidence": "low",
+            "confidence_score": 0,
+            "confidence_reason": "Nu a fost primita nicio intrebare.",
             "live_verified": False,
         })
 
@@ -333,66 +375,60 @@ def chat():
     faculty_id = faculty["id"]
     question_is_vague = is_vague_question(question)
     effective_question = build_effective_question(question, history)
-    index_items = load_index()
-    ranked_pages = rank_index(effective_question, index_items, faculty_id, top_k=INDEX_RANK_LIMIT) if index_items else []
-    candidate_urls = [item["url"] for item in ranked_pages]
+    index_document = load_index()
+    cache_key = build_cache_key(faculty_id, effective_question, history, index_document.get("built_at"))
+    cached_response = get_cached_response(cache_key)
+    if cached_response is not None:
+        return jsonify(cached_response)
 
-    if not candidate_urls:
-        candidate_urls = rank_seed_candidate_urls(faculty_id, effective_question)
+    retrieval_result = rank_index(effective_question, index_document, faculty_id, top_k=6)
+    live_verified = False
 
-    pages = fetch_pages(candidate_urls, INITIAL_LIVE_FETCH_LIMIT)
-    top_chunks = rank_chunks(effective_question, pages, top_k=3) if pages else []
-    confidence = compute_confidence(top_chunks)
-
-    if confidence == "low":
-        extra_urls = candidate_urls[INITIAL_LIVE_FETCH_LIMIT:INITIAL_LIVE_FETCH_LIMIT + EXTRA_LIVE_FETCH_LIMIT]
-        if extra_urls:
-            extra_pages = fetch_pages(extra_urls, len(extra_urls))
-            if extra_pages:
-                pages.extend(extra_pages)
-                top_chunks = rank_chunks(effective_question, pages, top_k=3)
-                confidence = compute_confidence(top_chunks)
-
-    if confidence == "low":
-        fetched_urls = {page.get("url", "") for page in pages}
-        fallback_urls = [
-            url
-            for url in rank_seed_candidate_urls(faculty_id, effective_question)
-            if url not in fetched_urls
-        ]
-        fallback_pages = fetch_pages(fallback_urls, SEED_FALLBACK_LIMIT)
-        if fallback_pages:
-            pages.extend(fallback_pages)
-            top_chunks = rank_chunks(effective_question, pages, top_k=3)
-            confidence = compute_confidence(top_chunks)
+    if retrieval_result.get("chunks"):
+        merged_chunks, live_verified = live_verify_retrieval(
+            effective_question,
+            faculty_id,
+            retrieval_result,
+            index_document,
+        )
+        confidence = compute_confidence(merged_chunks[:4], retrieval_result.get("analysis"))
+        retrieval_result["chunks"] = merged_chunks[:4]
+        retrieval_result["confidence"] = confidence["label"]
+        retrieval_result["confidence_score"] = confidence["score"]
+        retrieval_result["confidence_reason"] = confidence["reason"]
 
     prompt = build_user_prompt(
         question,
         faculty["name"],
-        top_chunks,
-        confidence,
+        retrieval_result,
         history=history,
         question_is_vague=question_is_vague,
     )
 
     try:
         llm_answer = ask_llm(SYSTEM_PROMPT, prompt)
-    except Exception as exc:
-        return jsonify({
-            "answer": f"Eroare la interogarea modelului Gemini: {exc}",
-            "sources": unique_sources_from_chunks(top_chunks),
-            "matched_faculty": faculty["name"],
-            "confidence": confidence,
-            "live_verified": bool(top_chunks),
-        })
+    except Exception:
+        llm_answer = build_local_fallback_answer(retrieval_result)
 
-    return jsonify({
+    response_payload = {
         "answer": llm_answer,
-        "sources": unique_sources_from_chunks(top_chunks),
+        "sources": unique_sources_from_chunks(retrieval_result.get("chunks", [])),
         "matched_faculty": faculty["name"],
-        "confidence": confidence,
-        "live_verified": bool(top_chunks),
-    })
+        "matched_faculty_id": faculty_id,
+        "confidence": retrieval_result.get("confidence", "low"),
+        "confidence_score": retrieval_result.get("confidence_score", 0),
+        "confidence_reason": retrieval_result.get("confidence_reason", ""),
+        "live_verified": live_verified,
+        "query_profile": {
+            "intent": retrieval_result.get("analysis", {}).get("intent", "general"),
+            "policy_question": retrieval_result.get("analysis", {}).get("is_policy_question", False),
+            "normalized_question": retrieval_result.get("analysis", {}).get("corrected_question", question),
+            "corrections": retrieval_result.get("analysis", {}).get("corrections", []),
+        },
+    }
+
+    set_cached_response(cache_key, response_payload)
+    return jsonify(response_payload)
 
 
 @app.post("/feedback")
