@@ -1,5 +1,5 @@
 FACULTIES = [
-    {"id": "uvt", "name": "UVT (general)", "base_urls": ["https://www.uvt.ro/"]},
+    {"id": "uvt", "name": "UVT (general)", "base_urls": ["https://www.uvt.ro/", "https://admitere.uvt.ro/"]},
     {"id": "arte", "name": "Facultatea de Arte si Design", "base_urls": ["https://arte.uvt.ro/"]},
     {
         "id": "cbg",

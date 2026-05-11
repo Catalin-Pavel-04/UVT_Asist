@@ -7,62 +7,57 @@
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <div class="app-shell">
-    <header class="header">
+  <main class="app-shell">
+    <header class="topbar">
       <div class="brand">
-        <div class="logo">U</div>
+        <div class="logo" aria-hidden="true">U</div>
         <div>
-          <div class="title">UVT Asist</div>
-          <div class="subtitle">RAG peste surse oficiale UVT</div>
+          <h1>UVT Asist</h1>
+          <p>RAG local cu Ollama si Qdrant</p>
         </div>
       </div>
-      <div class="header-actions">
-        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Schimba tema">D</button>
-        <div id="statusDot" class="status-dot" aria-hidden="true"></div>
+      <div class="topbar-actions">
+        <button id="themeToggle" class="icon-button" type="button" aria-label="Schimba tema">Dark</button>
+        <span id="statusDot" class="status-dot" aria-hidden="true"></span>
       </div>
     </header>
 
     <section id="statusPanel" class="status-panel status-idle" aria-live="polite">
-      <div id="statusTitle" class="status-title">Pregatit pentru intrebare</div>
-      <div id="statusText" class="status-text">
-        Index local, verificare live limitata si raspuns generat din surse oficiale.
-      </div>
+      <div id="statusTitle" class="status-title">Pregatit</div>
+      <div id="statusText" class="status-text">Raspunsurile folosesc cautare vectoriala locala si verifica doar sursele de top.</div>
     </section>
 
-    <section class="faculty-card">
-      <div class="faculty-top">
-        <label for="faculty">Facultate selectata</label>
+    <section class="control-panel">
+      <div class="field-head">
+        <label for="faculty">Facultate</label>
         <span id="facultyBadge" class="badge">UVT</span>
       </div>
       <select id="faculty"></select>
     </section>
 
-    <section class="meta-card">
+    <section class="meta-panel">
       <div class="meta-badges">
         <span id="confidenceBadge" class="meta-badge muted">Confidence --</span>
         <span id="verificationBadge" class="meta-badge muted">Index local</span>
       </div>
-      <div id="metaLine" class="meta-line">
-        Raspunsurile vor prefera paginile oficiale specifice, nu homepage-uri generale.
-      </div>
+      <div id="metaLine" class="meta-line">Paginile oficiale specifice au prioritate fata de paginile generale.</div>
     </section>
 
-    <section id="log" class="chat" aria-label="Chat log">
+    <section id="log" class="chat" aria-label="Conversatie">
       <div id="emptyState" class="empty-state">
-        <div class="empty-kicker">UVT Asist</div>
-        <div class="empty-title">Pune o intrebare concreta</div>
+        <div class="empty-kicker">Exemple utile</div>
+        <div class="empty-title">Intreaba concret</div>
         <div id="emptyText" class="empty-text">
-          Exemple: unde gasesc orarul, program secretariat, admitere, burse, reguli pentru doua burse
+          Orar, secretariat, admitere, burse sau reguli despre cumularea burselor.
         </div>
       </div>
     </section>
 
-    <section class="chips" aria-label="Actiuni rapide">
+    <section class="chips" aria-label="Intrebari rapide">
       <button class="chip" type="button" data-q="Unde gasesc orarul?">Orar</button>
-      <button class="chip" type="button" data-q="Unde gasesc informatii despre burse?">Burse</button>
       <button class="chip" type="button" data-q="Unde gasesc secretariatul facultatii?">Secretariat</button>
+      <button class="chip" type="button" data-q="Este posibil ca un student sa beneficieze de 2 burse?">Reguli burse</button>
       <button class="chip" type="button" data-q="Unde gasesc informatii despre admitere?">Admitere</button>
-      <button class="chip" type="button" data-q="Este posibil sa beneficiezi de 2 burse?">Reguli burse</button>
     </section>
 
     <section class="recent">
@@ -74,7 +69,7 @@
       <textarea id="q" rows="2" placeholder="Scrie intrebarea aici..."></textarea>
       <button id="send" type="button">Trimite</button>
     </section>
-  </div>
+  </main>
 
   <script src="popup.js"></script>
 </body>

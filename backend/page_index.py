@@ -16,29 +16,38 @@ DEFAULT_CHUNK_OVERLAP = 180
 _INDEX_CACHE: dict | None = None
 _INDEX_MTIME: float | None = None
 
-PAGE_TYPE_PRIORITY_PATHS = {
+PATH_HINTS = {
     "orar": ("/orare", "/orar"),
-    "burse": ("/burse",),
+    "burse": ("/burse", "/bursa"),
     "contact": ("/contact", "/secretariat"),
     "admitere": ("/admitere", "/inscriere"),
     "regulamente": ("/regulamente", "/regulament", "/metodologii", "/metodologie", "/proceduri", "/procedura"),
-    "studenti": ("/studenti",),
+    "studenti": ("/studenti", "/student"),
 }
 
-PAGE_TYPE_KEYWORDS = {
-    "orar": ("orar", "orare", "orarul", "orarului"),
-    "burse": ("bursa", "burse", "bursa sociala", "bursa de merit"),
-    "contact": ("contact", "secretariat", "secretar", "program cu publicul", "programul secretariatului"),
-    "admitere": ("admitere", "inscriere", "inscrieri", "dosar", "concurs de admitere"),
-    "regulamente": ("regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri", "anexa", "hotarare"),
-    "studenti": ("studenti", "student", "studentesc", "experienta uvt"),
+TITLE_KEYWORDS = {
+    "orar": ("orar", "orare"),
+    "burse": ("bursa", "burse", "burselor"),
+    "contact": ("contact", "secretariat"),
+    "admitere": ("admitere", "inscriere"),
+    "regulamente": ("regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri", "anexa"),
+    "studenti": ("studenti", "student", "studentweb", "cazare", "taxe"),
+}
+
+CONTENT_KEYWORDS = {
+    "orar": ("orar", "orare", "programarea cursurilor"),
+    "burse": ("bursa", "burse", "burselor", "sprijin financiar"),
+    "contact": ("secretariat", "program cu publicul", "telefon", "e-mail"),
+    "admitere": ("admitere", "inscriere", "candidat", "dosar"),
+    "regulamente": ("regulament", "metodologie", "procedura", "hotarare", "anexa"),
+    "studenti": ("studenti", "studentweb", "cazare", "taxe"),
 }
 
 GENERIC_TITLES = {
-    "acasa - uvt",
-    "home - uvt",
-    "home",
     "acasa",
+    "acasa - uvt",
+    "home",
+    "home - uvt",
 }
 
 
@@ -51,60 +60,61 @@ def iso_from_timestamp(timestamp: float) -> str:
 
 
 def normalize(text: str) -> str:
-    normalized = unicodedata.normalize("NFKD", str(text).lower())
-    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-    return normalized
+    value = unicodedata.normalize("NFKD", str(text).lower())
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def normalize_host(url: str) -> str:
-    host = (urlparse(url).hostname or "").lower()
+    host = (urlparse(url).hostname or "").lower().strip()
     return host[4:] if host.startswith("www.") else host
 
 
 def normalize_url(url: str) -> str:
-    parsed = urlparse(url)
-    scheme = "https"
-    host = normalize_host(url)
+    parsed = urlparse(str(url).strip())
+    host = normalize_host(str(url))
+    if not host:
+        return ""
+
     path = parsed.path or "/"
     if not path.startswith("/"):
         path = f"/{path}"
-
     path = path.rstrip("/") or "/"
     query = f"?{parsed.query}" if parsed.query else ""
-    return f"{scheme}://{host}{path}{query}"
+    return f"https://{host}{path}{query}"
+
+
+def _score_keyword_matches(haystack: str, keywords: tuple[str, ...], weight: int) -> int:
+    return sum(weight for keyword in keywords if keyword in haystack)
 
 
 def detect_page_type(url: str, title: str, text: str) -> str:
-    haystack = normalize(f"{url} {title} {text[:2500]}")
     path = normalize(urlparse(url).path or "/")
     title_norm = normalize(title)
-    scores = {page_type: 0 for page_type in PAGE_TYPE_KEYWORDS}
+    content_head = normalize(str(text)[:2200])
+    scores = {page_type: 0 for page_type in TITLE_KEYWORDS}
 
-    for page_type, keywords in PAGE_TYPE_KEYWORDS.items():
-        for keyword in keywords:
-            if keyword in haystack:
-                scores[page_type] += 2
-            if keyword in title_norm:
-                scores[page_type] += 3
+    for page_type, hints in PATH_HINTS.items():
+        if any(hint in path for hint in hints):
+            scores[page_type] += 24
 
-    for page_type, path_hints in PAGE_TYPE_PRIORITY_PATHS.items():
-        for hint in path_hints:
-            if hint in path:
-                scores[page_type] += 10
+    for page_type, keywords in TITLE_KEYWORDS.items():
+        scores[page_type] += _score_keyword_matches(title_norm, keywords, 12)
 
-    if "secretariat" in haystack:
-        scores["contact"] += 6
-    if any(keyword in haystack for keyword in ("se poate", "este posibil", "cumuleaza", "beneficia de")):
-        scores["regulamente"] += 3
-    if "/burse" in path and any(keyword in haystack for keyword in ("regulament", "metodologie", "procedura")):
-        scores["regulamente"] += 4
-    if "/studenti" in path:
-        scores["studenti"] += 2
-    if any(keyword in title_norm for keyword in ("regulament", "metodolog", "procedur")):
-        scores["regulamente"] += 12
-    if any(keyword in title_norm for keyword in ("contact", "secretariat")):
-        scores["contact"] += 8
+    if any(term in title_norm for term in ("regulament", "metodologie", "procedura", "anexa")):
+        scores["regulamente"] += 30
+
+    for page_type, keywords in CONTENT_KEYWORDS.items():
+        scores[page_type] += _score_keyword_matches(content_head, keywords, 3)
+
+    if "program" in content_head and "secretariat" in content_head:
+        scores["contact"] += 10
+    if "metodologie" in title_norm and "burs" in f"{title_norm} {content_head}":
+        scores["regulamente"] += 18
+    if "reguli de cumulare" in content_head or "art. 5" in content_head:
+        scores["regulamente"] += 18
+    if title_norm in GENERIC_TITLES and path == "/":
+        return "general"
 
     best_page_type = max(scores, key=scores.get)
     return best_page_type if scores[best_page_type] > 0 else "general"
@@ -112,12 +122,10 @@ def detect_page_type(url: str, title: str, text: str) -> str:
 
 def detect_faculty_id(url: str, faculties: list[dict]) -> str:
     host = normalize_host(url)
-
     for faculty in faculties:
-        for base_url in faculty["base_urls"]:
+        for base_url in faculty.get("base_urls", []):
             if host == normalize_host(base_url):
                 return faculty["id"]
-
     return "uvt"
 
 
@@ -137,34 +145,28 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = D
 
         while end < len(words):
             word = words[end]
-            additional = len(word) if not current_words else len(word) + 1
-            if current_words and current_length + additional > chunk_size:
+            additional_length = len(word) if not current_words else len(word) + 1
+            if current_words and current_length + additional_length > chunk_size:
                 break
-
             current_words.append(word)
-            current_length += additional
+            current_length += additional_length
             end += 1
 
         if not current_words:
-            current_words.append(words[end])
-            end += 1
+            break
 
-        chunk = " ".join(current_words).strip()
-        if chunk:
-            chunks.append(chunk)
-
+        chunks.append(" ".join(current_words))
         if end >= len(words):
             break
 
         overlap_length = 0
         overlap_start = end
         while overlap_start > start:
-            candidate_word = words[overlap_start - 1]
-            overlap_length += len(candidate_word) + 1
+            previous_word = words[overlap_start - 1]
+            overlap_length += len(previous_word) + 1
             if overlap_length > overlap:
                 break
             overlap_start -= 1
-
         start = overlap_start if overlap_start < end else end
 
     return chunks
@@ -185,13 +187,14 @@ def build_chunk_entries_from_pages(
 
     for page in pages:
         url = normalize_url(page.get("url", ""))
-        title = str(page.get("title") or url).strip() or url
         text = str(page.get("text") or "").strip()
         if not url or not text:
             continue
 
+        title = str(page.get("title") or url).strip() or url
         faculty_id = page.get("faculty_id") or detect_faculty_id(url, faculties)
-        page_type = detect_page_type(url, title, text)
+        detected_page_type = detect_page_type(url, title, text)
+        page_type = detected_page_type if detected_page_type != "general" else page.get("page_type") or "general"
 
         for position, chunk in enumerate(chunk_text(text), start=1):
             chunks.append({
@@ -214,7 +217,7 @@ def build_index_document(
 ) -> dict:
     timestamp = built_at or utc_now_iso()
     chunks = build_chunk_entries_from_pages(pages, faculties, built_at=timestamp)
-    page_urls = {normalize_url(page.get("url", "")) for page in pages if page.get("url")}
+    page_urls = {normalize_url(page.get("url", "")) for page in pages if normalize_url(page.get("url", ""))}
 
     return {
         "schema_version": INDEX_SCHEMA_VERSION,
@@ -225,69 +228,78 @@ def build_index_document(
     }
 
 
+def _empty_index() -> dict:
+    return {
+        "schema_version": INDEX_SCHEMA_VERSION,
+        "built_at": None,
+        "page_count": 0,
+        "chunk_count": 0,
+        "chunks": [],
+    }
+
+
+def _normalize_chunk(raw_chunk: dict, fallback_position: int, timestamp: str, faculties: list[dict]) -> dict | None:
+    url = normalize_url(raw_chunk.get("url", ""))
+    chunk_text_value = str(raw_chunk.get("chunk_text") or raw_chunk.get("text") or "").strip()
+    if not url or not chunk_text_value:
+        return None
+
+    title = str(raw_chunk.get("title") or url).strip() or url
+    page_type = raw_chunk.get("page_type") or detect_page_type(url, title, chunk_text_value)
+    faculty_id = raw_chunk.get("faculty_id") or detect_faculty_id(url, faculties)
+
+    return {
+        "chunk_id": str(raw_chunk.get("chunk_id") or _build_chunk_id(url, fallback_position)),
+        "faculty_id": faculty_id,
+        "page_type": page_type,
+        "title": title,
+        "url": url,
+        "chunk_text": chunk_text_value,
+        "last_indexed": str(raw_chunk.get("last_indexed") or timestamp),
+    }
+
+
 def _normalize_loaded_document(raw_data, file_timestamp: float | None) -> dict:
     from faculties import FACULTIES
 
     timestamp = iso_from_timestamp(file_timestamp) if file_timestamp else utc_now_iso()
-
-    if isinstance(raw_data, dict):
-        raw_chunks = raw_data.get("chunks")
-        if isinstance(raw_chunks, list):
-            chunks = []
-            page_urls = set()
-
-            for chunk in raw_chunks:
-                if not isinstance(chunk, dict):
-                    continue
-
-                url = normalize_url(chunk.get("url", ""))
-                title = str(chunk.get("title") or url).strip() or url
-                chunk_text_value = str(chunk.get("chunk_text") or chunk.get("text") or "").strip()
-                if not url or not chunk_text_value:
-                    continue
-
-                page_type = chunk.get("page_type") or detect_page_type(url, title, chunk_text_value)
-                faculty_id = chunk.get("faculty_id") or detect_faculty_id(url, FACULTIES)
-                chunk_id = str(chunk.get("chunk_id") or _build_chunk_id(url, len(chunks) + 1))
-                last_indexed = str(chunk.get("last_indexed") or raw_data.get("built_at") or timestamp)
-
-                chunks.append({
-                    "chunk_id": chunk_id,
-                    "faculty_id": faculty_id,
-                    "page_type": page_type,
-                    "title": title,
-                    "url": url,
-                    "chunk_text": chunk_text_value,
-                    "last_indexed": last_indexed,
-                })
-                page_urls.add(url)
-
-            built_at = str(raw_data.get("built_at") or timestamp)
-            return {
-                "schema_version": int(raw_data.get("schema_version") or INDEX_SCHEMA_VERSION),
-                "built_at": built_at,
-                "page_count": int(raw_data.get("page_count") or len(page_urls)),
-                "chunk_count": int(raw_data.get("chunk_count") or len(chunks)),
-                "chunks": chunks,
-            }
-
-        page_items = raw_data.get("pages")
-        if isinstance(page_items, list):
-            upgraded = build_index_document(page_items, FACULTIES, built_at=timestamp)
-            upgraded["legacy_format"] = True
-            return upgraded
 
     if isinstance(raw_data, list):
         upgraded = build_index_document(raw_data, FACULTIES, built_at=timestamp)
         upgraded["legacy_format"] = True
         return upgraded
 
+    if not isinstance(raw_data, dict):
+        return _empty_index()
+
+    if isinstance(raw_data.get("pages"), list):
+        upgraded = build_index_document(raw_data["pages"], FACULTIES, built_at=timestamp)
+        upgraded["legacy_format"] = True
+        return upgraded
+
+    raw_chunks = raw_data.get("chunks")
+    if not isinstance(raw_chunks, list):
+        return _empty_index()
+
+    chunks: list[dict] = []
+    page_urls: set[str] = set()
+    built_at = str(raw_data.get("built_at") or timestamp)
+
+    for fallback_position, raw_chunk in enumerate(raw_chunks, start=1):
+        if not isinstance(raw_chunk, dict):
+            continue
+        chunk = _normalize_chunk(raw_chunk, fallback_position, built_at, FACULTIES)
+        if not chunk:
+            continue
+        chunks.append(chunk)
+        page_urls.add(chunk["url"])
+
     return {
-        "schema_version": INDEX_SCHEMA_VERSION,
-        "built_at": timestamp,
-        "page_count": 0,
-        "chunk_count": 0,
-        "chunks": [],
+        "schema_version": int(raw_data.get("schema_version") or INDEX_SCHEMA_VERSION),
+        "built_at": built_at,
+        "page_count": int(raw_data.get("page_count") or len(page_urls)),
+        "chunk_count": len(chunks),
+        "chunks": chunks,
     }
 
 
@@ -295,46 +307,28 @@ def load_index() -> dict:
     global _INDEX_CACHE, _INDEX_MTIME
 
     if not INDEX_PATH.exists():
-        empty_index = {
-            "schema_version": INDEX_SCHEMA_VERSION,
-            "built_at": None,
-            "page_count": 0,
-            "chunk_count": 0,
-            "chunks": [],
-        }
-        _INDEX_CACHE = empty_index
+        empty = _empty_index()
+        _INDEX_CACHE = empty
         _INDEX_MTIME = None
-        return dict(empty_index)
+        return dict(empty)
 
     mtime = INDEX_PATH.stat().st_mtime
     if _INDEX_CACHE is not None and _INDEX_MTIME == mtime:
-        return {
-            **_INDEX_CACHE,
-            "chunks": list(_INDEX_CACHE.get("chunks", [])),
-        }
+        return {**_INDEX_CACHE, "chunks": list(_INDEX_CACHE.get("chunks", []))}
 
     try:
         with INDEX_PATH.open("r", encoding="utf-8") as handle:
             raw_data = json.load(handle)
     except (OSError, json.JSONDecodeError):
-        empty_index = {
-            "schema_version": INDEX_SCHEMA_VERSION,
-            "built_at": None,
-            "page_count": 0,
-            "chunk_count": 0,
-            "chunks": [],
-        }
-        _INDEX_CACHE = empty_index
+        empty = _empty_index()
+        _INDEX_CACHE = empty
         _INDEX_MTIME = None
-        return dict(empty_index)
+        return dict(empty)
 
-    normalized_document = _normalize_loaded_document(raw_data, mtime)
-    _INDEX_CACHE = normalized_document
+    document = _normalize_loaded_document(raw_data, mtime)
+    _INDEX_CACHE = document
     _INDEX_MTIME = mtime
-    return {
-        **normalized_document,
-        "chunks": list(normalized_document.get("chunks", [])),
-    }
+    return {**document, "chunks": list(document.get("chunks", []))}
 
 
 def save_index(document: dict) -> None:

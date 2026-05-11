@@ -1,30 +1,138 @@
 # UVT_Asist
 
-`UVT_Asist` is a Chrome extension plus Flask backend that answers student questions using a local RAG-style index built from official UVT and faculty websites. Retrieval is index-first, faculty-aware, page-type-aware, and optimized for a bachelor thesis demo.
+UVT_Asist is a bachelor thesis project that answers student questions using official pages from the West University of Timisoara. The product runs as a Chrome extension popup backed by a local Flask API. All AI components run locally: Ollama generates answers, Ollama creates embeddings, and Qdrant stores the vector index.
 
-## What Changed
+The system is designed as local-index-first RAG. Official UVT and faculty pages are crawled into chunks, embedded locally, stored in Qdrant with metadata, retrieved semantically with faculty and page-type filters, reranked with deterministic Romanian query heuristics, optionally live-verified, and then passed to a local Ollama generation model.
 
-- Local knowledge base is now chunk-first instead of page-first.
-- Retrieval uses query normalization, typo correction, intent detection, policy-question routing, metadata boosts, and local confidence scoring.
-- Live fetching still exists, but only for top candidate pages.
-- The popup now exposes backend state, confidence, routing hints, verified-source badges, recent questions, and structured official source cards.
-- Feedback is logged in a thesis-friendly JSONL format.
+## Architecture
 
-## Current Retrieval Flow
+- `extension/`: Chrome extension popup used by the student.
+- `backend/app.py`: Flask API, chat orchestration, response payloads, source verification, feedback logging, health reporting.
+- `backend/ollama_client.py`: local Ollama chat and embedding API client.
+- `backend/vector_store.py`: Qdrant collection setup, payload indexes, vector upsert, filtered search, index status.
+- `backend/vector_indexer.py`: chunk-to-embedding text formatting and vector index rebuild logic.
+- `backend/retriever.py`: Romanian normalization, typo correction, intent detection, policy routing, Qdrant search orchestration, deterministic reranking, confidence scoring.
+- `backend/page_index.py`: chunk schema, page type detection, JSON index loading, legacy index upgrade.
+- `backend/build_index.py`: crawler plus JSON and Qdrant index builder.
+- `backend/live_fetch.py`: official page fetching and text extraction for HTML, PDF, DOCX, text, and optional OCR assets.
+- `backend/site_cache.py`: short-lived live verification cache.
+- `backend/prompts.py`: local RAG prompt contract.
+- `backend/faculties.py`: UVT and faculty source configuration.
 
-1. Normalize the user question.
-2. Correct common Romanian student typos and wording variants.
-3. Detect intent: `orar`, `burse`, `contact`, `admitere`, `regulamente`, `studenti`, `general`.
-4. Detect policy-style questions such as cumulation / eligibility / methodology questions.
-5. Route by selected faculty and preferred page types.
-6. Retrieve the best local chunks from `backend/data/page_index.json`.
-7. Live-verify only the best source URLs.
-8. Send the strongest official evidence to Gemini.
-9. Return answer + confidence + clean source cards.
+## Local AI Stack
 
-## Index Format
+Required services:
 
-The local index lives in `backend/data/page_index.json` and stores chunk records with:
+- Ollama on `http://127.0.0.1:11434`
+- Qdrant on `http://127.0.0.1:6333`
+- Flask backend on `http://127.0.0.1:5000`
+- Chrome extension loaded from `extension/`
+
+Default models are configured in `backend/.env`:
+
+```env
+OLLAMA_GENERATION_MODEL=qwen3:4b
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+```
+
+You can switch models by changing those two variables and rebuilding the vector index when the embedding model changes.
+
+## Setup
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r backend\requirements.txt
+Copy-Item backend\.env.example backend\.env
+```
+
+Install and start Ollama, then pull local models:
+
+```powershell
+ollama pull qwen3:4b
+ollama pull nomic-embed-text
+ollama serve
+```
+
+Start Qdrant with Docker:
+
+```powershell
+docker run --name uvt-asist-qdrant -p 6333:6333 -p 6334:6334 -v ${PWD}\qdrant_storage:/qdrant/storage qdrant/qdrant
+```
+
+If the container already exists:
+
+```powershell
+docker start uvt-asist-qdrant
+```
+
+If Docker is not available, Qdrant Client can run a local embedded store for development. Set this in `backend/.env` before building the vector index:
+
+```env
+QDRANT_PATH=backend/data/qdrant_local
+```
+
+For thesis demos, the Docker/server mode is easier to inspect and reset.
+
+## Build Or Rebuild The Index
+
+Full crawl plus JSON and Qdrant vector index:
+
+```powershell
+python backend\build_index.py
+```
+
+Useful crawl controls:
+
+```powershell
+python backend\build_index.py --max-urls-per-faculty 90 --max-depth 2 --max-links-per-page 35 --fetch-workers 10
+```
+
+Rebuild only the Qdrant vector index from the existing JSON chunks:
+
+```powershell
+python backend\scripts\build_vector_index.py
+```
+
+The JSON snapshot is written to `backend/data/page_index.json`. Qdrant stores the searchable vector collection named by `QDRANT_COLLECTION`, defaulting to `uvt_asist_chunks`.
+
+## Run The Backend
+
+```powershell
+python backend\app.py
+```
+
+Health check:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/health
+```
+
+The health payload reports Ollama availability, configured models, JSON index status, Qdrant collection status, live verification cache, and response cache size.
+
+## Load The Chrome Extension
+
+1. Open `chrome://extensions`.
+2. Enable Developer mode.
+3. Choose Load unpacked.
+4. Select the `extension/` folder.
+5. Keep Ollama, Qdrant, and Flask running while using the popup.
+
+## How RAG Works
+
+1. Normalize Romanian text and common student typos.
+2. Detect intent: `orar`, `contact`, `burse`, `admitere`, `regulamente`, `studenti`, or `general`.
+3. Detect policy/regulation-style questions.
+4. Embed the normalized query with Ollama.
+5. Search Qdrant with metadata filters for `faculty_id` and `page_type`.
+6. Retrieve semantic candidates from the local vector collection.
+7. Rerank candidates with deterministic boosts for exact title, URL, faculty, page type, policy, and lexical signals.
+8. Penalize generic homepages when specific official pages exist.
+9. Live-verify only the best source URLs.
+10. Send only the best official context chunks to the local Ollama generation model.
+11. Return a concise answer, confidence metadata, verification state, and clean source cards.
+
+Each stored Qdrant payload contains:
 
 - `chunk_id`
 - `faculty_id`
@@ -34,138 +142,54 @@ The local index lives in `backend/data/page_index.json` and stores chunk records
 - `chunk_text`
 - `last_indexed`
 
-Legacy page-level index files are upgraded automatically in memory when loaded.
+## Example Queries
 
-## Project Structure
+- Faculty `info`: `Unde gasesc orarul?`
+- Faculty `info`: `Unde gasesc secretariatul facultatii de informatica?`
+- Faculty `uvt`: `Este posibil ca un student sa beneficieze de 2 burse?`
+- Faculty `uvt`: `Se pot cumula bursele?`
+- Faculty `uvt`: `Unde gasesc informatii despre admitere?`
+- Faculty `info`: `Unde gasesc orrarul la info?`
 
-- `backend/app.py`: Flask API and chat orchestration
-- `backend/build_index.py`: deterministic crawler + chunk index builder
-- `backend/page_index.py`: index schema, chunking, page typing, legacy upgrade
-- `backend/retriever.py`: hybrid retrieval, routing, typo handling, confidence scoring
-- `backend/live_fetch.py`: fetch + text extraction for HTML / PDF / DOCX / OCR images
-- `backend/site_cache.py`: top-source live verification cache
-- `backend/prompts.py`: Gemini system/user prompts
-- `extension/popup.*`: Chrome extension UI
-- `backend/scripts/smoke_retrieval.py`: local retrieval smoke checks
+Expected behavior:
 
-## Setup
+- Informatics schedule questions should strongly prefer `https://info.uvt.ro/orare/`.
+- Informatics secretariat questions should strongly prefer the Informatics contact page.
+- Scholarship cumulation and eligibility questions should strongly prefer UVT regulations or methodology pages.
+- Typo-based questions should still route to the correct faculty and page type.
+- If evidence is weak, the answer should say that clearly and still show the best official sources found.
 
-### 1. Install backend dependencies
+## Validation
 
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r backend\requirements.txt
-```
-
-### 2. Configure Gemini
-
-Create `backend/.env` with:
-
-```env
-GEMINI_API_KEY=your_key_here
-GEMINI_MODEL=gemini-2.5-flash
-```
-
-If `GEMINI_API_KEY` is missing, the backend still returns a local evidence fallback answer, but full thesis demos should use Gemini.
-
-### 3. Build or rebuild the local index
-
-```powershell
-python backend\build_index.py
-```
-
-Optional crawl controls:
-
-```powershell
-python backend\build_index.py --max-urls-per-faculty 90 --max-depth 2 --max-links-per-page 35 --fetch-workers 10
-```
-
-The builder prioritizes:
-
-- `/orare/`
-- `/burse/`
-- `/contact/`
-- `/studenti/`
-- `/admitere/`
-- `/regulamente/`
-- `/metodologii/`
-- `/proceduri/`
-
-### 4. Run Flask
-
-```powershell
-python backend\app.py
-```
-
-Health endpoint:
-
-```text
-http://127.0.0.1:5000/health
-```
-
-### 5. Load the Chrome extension
-
-1. Open `chrome://extensions`
-2. Enable `Developer mode`
-3. Choose `Load unpacked`
-4. Select the `extension/` folder
-
-## Local Validation
-
-### Retrieval smoke test
+Run retrieval smoke tests after index, retriever, embedding, or Qdrant changes:
 
 ```powershell
 python backend\scripts\smoke_retrieval.py
 ```
 
-This validates the local ranking behavior without needing the extension UI.
+Run backend health after backend changes:
 
-### Manual extension / API checklist
-
-Use these scenarios after Flask is running:
-
-1. Faculty = `info`, question = `Unde gasesc orarul?`
-Expected: `https://info.uvt.ro/orare` or `https://info.uvt.ro/orar` is preferred.
-
-2. Faculty = `info`, question = `Unde gasesc secretariatul facultatii de informatica?`
-Expected: `https://info.uvt.ro/contact` is preferred over other faculties.
-
-3. Faculty = `uvt`, question = `Este posibil sa beneficiezi de 2 burse?`
-Expected: regulations / methodology pages are preferred over random faculty bursary pages.
-
-4. Faculty = `uvt`, question = `Unde gasesc informatii despre admitere?`
-Expected: admitere pages are returned, with official sources exposed clearly.
-
-5. Faculty = `info`, question = `Unde gasesc orrarul la info?`
-Expected: typo is normalized and the Informatics schedule pages still win.
-
-6. Faculty = any, backend stopped
-Expected: popup shows backend unavailable state instead of hanging silently.
-
-## Logging
-
-Feedback is appended to:
-
-```text
-backend/feedback_log.jsonl
+```powershell
+python backend\app.py
+Invoke-RestMethod http://127.0.0.1:5000/health
 ```
 
-Each record stores:
+Manual popup checklist:
 
-- question
-- selected faculty
-- matched faculty
-- answer
-- confidence
-- confidence score
-- feedback vote
-- sources
-- timestamp
+1. `info` faculty, ask `Unde gasesc orarul?`; top source should be `info.uvt.ro/orare`.
+2. `info` faculty, ask `Unde gasesc secretariatul facultatii de informatica?`; top source should be `info.uvt.ro/contact`.
+3. `uvt` faculty, ask `Este posibil ca un student sa beneficieze de 2 burse?`; source should be a scholarship methodology/regulation page.
+4. Ask `Unde gasesc informatii despre admitere?`; returned sources should be official admission pages.
+5. `info` faculty, ask `Unde gasesc orrarul la info?`; the Informatics schedule page should still win.
+6. Stop Flask and open the popup; it should show the backend unavailable state.
+7. Ask a vague or unsupported question; confidence should be low and sources should remain official.
 
-## Notes For Thesis Demo
+## Limitations
 
-- Rebuild the index before the live demo to refresh official sources.
-- Keep Flask running locally before opening the popup.
-- Use the extension popup as the primary interface.
-- For demo reliability, verify `/health` first and keep a valid `GEMINI_API_KEY` configured.
+- The system answers only from pages present in the local JSON/Qdrant index plus the narrow live verification step.
+- If official pages change, rebuild the index.
+- If the embedding model changes, rebuild the Qdrant vector collection.
+- Ollama model quality and speed depend on local hardware.
+- Live fetching is intentionally bounded to keep the demo deterministic.
+- OCR support is optional and depends on the separate OCR setup.
+- The popup is the only user-facing interface; there is no separate web frontend.

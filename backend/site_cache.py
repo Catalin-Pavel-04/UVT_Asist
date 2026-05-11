@@ -14,21 +14,17 @@ STATE_LOCK = threading.Lock()
 VERIFICATION_CACHE: dict[str, dict] = {}
 
 
-def _unique_urls(urls: list[str]) -> list[str]:
-    seen = set()
-    ordered = []
-
+def unique_urls(urls: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
     for url in urls:
-        if not url or url in seen:
-            continue
-
-        seen.add(url)
-        ordered.append(url)
-
+        if url and url not in seen:
+            seen.add(url)
+            ordered.append(url)
     return ordered
 
 
-def _get_cached_page(url: str, now: float) -> dict | None:
+def get_cached_page(url: str, now: float) -> dict | None:
     with STATE_LOCK:
         cached = VERIFICATION_CACHE.get(url)
         if cached and now - cached["timestamp"] < VERIFICATION_CACHE_TTL:
@@ -37,21 +33,17 @@ def _get_cached_page(url: str, now: float) -> dict | None:
                 "cache_hit": True,
                 "verified_at": cached["verified_at"],
             }
-
     return None
 
 
-def _store_cached_page(url: str, page: dict) -> dict:
-    cached_page = {
-        **page,
-        "cache_hit": False,
-        "verified_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
+def store_cached_page(url: str, page: dict) -> dict:
+    verified_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    cached_page = {**page, "cache_hit": False, "verified_at": verified_at}
 
     with STATE_LOCK:
         VERIFICATION_CACHE[url] = {
             "timestamp": time.time(),
-            "verified_at": cached_page["verified_at"],
+            "verified_at": verified_at,
             "page": page,
         }
 
@@ -59,17 +51,17 @@ def _store_cached_page(url: str, page: dict) -> dict:
 
 
 def verify_pages(urls: list[str], max_pages: int = 2) -> list[dict]:
-    selected_urls = _unique_urls(urls[:max_pages])
+    selected_urls = unique_urls(urls)[:max_pages]
     if not selected_urls:
         return []
 
     now = time.time()
     results: dict[str, dict] = {}
-    missing_urls = []
+    missing_urls: list[str] = []
 
     for url in selected_urls:
-        cached_page = _get_cached_page(url, now)
-        if cached_page is not None:
+        cached_page = get_cached_page(url, now)
+        if cached_page:
             results[url] = cached_page
         else:
             missing_urls.append(url)
@@ -80,9 +72,9 @@ def verify_pages(urls: list[str], max_pages: int = 2) -> list[dict]:
 
         for url, page in zip(missing_urls, pages):
             if page.get("text"):
-                results[url] = _store_cached_page(url, page)
+                results[url] = store_cached_page(url, page)
 
-    return [results[url] for url in selected_urls if results.get(url)]
+    return [results[url] for url in selected_urls if url in results]
 
 
 def get_cache_status() -> dict:

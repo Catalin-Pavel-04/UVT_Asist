@@ -5,3 +5,5 @@ backend/.env
 *.pyc
 backend/feedback_log.jsonl
 backend/data/page_index.json
+backend/data/qdrant_local/
+qdrant_storage/

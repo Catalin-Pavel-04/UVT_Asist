@@ -1,135 +1,133 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
 from difflib import get_close_matches
+from pathlib import PurePosixPath
 from typing import Iterable
 from urllib.parse import urlparse
 
 from page_index import is_generic_page_title
+from ollama_client import embed_text
+from vector_store import search_chunks
 
-INTENT_TO_PAGE_TYPES = {
-    "orar": ("orar", "studenti", "general"),
-    "burse": ("burse", "studenti", "regulamente", "general"),
-    "contact": ("contact", "studenti", "general"),
-    "admitere": ("admitere", "general"),
-    "regulamente": ("regulamente", "studenti", "general"),
-    "studenti": ("studenti", "general"),
-    "general": ("general", "studenti", "contact", "burse", "admitere", "orar", "regulamente"),
-}
+GENERAL_FACULTY_ID = "uvt"
 
 INTENT_KEYWORDS = {
-    "orar": ("orar", "orare", "orarul", "orarului"),
+    "orar": ("orar", "orare", "program cursuri", "program seminar"),
     "burse": ("bursa", "burse", "bursier", "bursieri"),
-    "contact": ("contact", "secretariat", "secretar", "email", "telefon", "program cu publicul"),
-    "admitere": ("admitere", "inscriere", "inscrieri", "dosar", "concurs"),
-    "regulamente": ("regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri", "anexa"),
-    "studenti": ("student", "studenti", "cazare", "taxa", "taxe", "camin"),
+    "contact": ("contact", "secretariat", "telefon", "email", "adresa", "program public"),
+    "admitere": ("admitere", "inscriere", "inscrieri", "candidat", "dosar"),
+    "regulamente": ("regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri"),
+    "studenti": ("student", "studenti", "cazare", "taxa", "taxe", "studentweb"),
 }
 
-PAGE_TYPE_HINTS = {
-    "orar": ("/orare", "/orar", "orar"),
-    "burse": ("/burse", "bursa", "burse"),
-    "contact": ("/contact", "/secretariat", "contact", "secretariat"),
-    "admitere": ("/admitere", "/inscriere", "admitere", "inscriere"),
-    "regulamente": ("/regulamente", "/regulament", "/metodologii", "/metodologie", "/proceduri", "/procedura", "regulament", "metodologie", "procedura"),
-    "studenti": ("/studenti", "studenti"),
+INTENT_PAGE_TYPES = {
+    "orar": ("orar", "studenti", "general"),
+    "burse": ("burse", "regulamente", "studenti", "general"),
+    "contact": ("contact", "general"),
+    "admitere": ("admitere", "regulamente", "general"),
+    "regulamente": ("regulamente", "studenti", "burse", "general"),
+    "studenti": ("studenti", "general", "contact"),
+    "general": ("general", "studenti", "contact", "admitere", "burse", "orar", "regulamente"),
 }
 
-COMMON_TEXT_PATTERNS = (
-    (r"\binformatia\b", "informatica"),
-    (r"\binformatici\b", "informatica"),
-    (r"\binformaticii\b", "informatica"),
+PAGE_HINTS = {
+    "orar": ("orare", "orar"),
+    "burse": ("burse", "bursa", "burselor"),
+    "contact": ("contact", "secretariat"),
+    "admitere": ("admitere", "inscriere"),
+    "regulamente": ("regulamente", "regulament", "metodologie", "metodologii", "procedura", "proceduri"),
+    "studenti": ("studenti", "studentweb", "cazare", "taxe"),
+}
+
+COMMON_REPLACEMENTS = (
     (r"\bfmi\b", "informatica"),
     (r"\bfac(?:ultatea)?(?:\s+de)?\s+info(?:rmatica)?\b", "informatica"),
-    (r"\bsecretaruat\b", "secretariat"),
+    (r"\bmatematica\s+si\s+informatica\b", "informatica"),
+    (r"\binformatici\b", "informatica"),
+    (r"\binformaticii\b", "informatica"),
+    (r"\binformatia\b", "informatica"),
+    (r"\borr?ar(?:ul|ului)?\b", "orar"),
+    (r"\borarelor\b", "orare"),
+    (r"\bsecretar(?:uat|ait)\b", "secretariat"),
     (r"\bsecreteriat\b", "secretariat"),
-    (r"\bsecretarait\b", "secretariat"),
-    (r"\bsecretarait\b", "secretariat"),
-    (r"\bbursw\b", "burse"),
-    (r"\bbursae\b", "burse"),
-    (r"\bbursae\b", "burse"),
-    (r"\badmiterw\b", "admitere"),
+    (r"\bsecretariatul\b", "secretariat"),
     (r"\badmietere\b", "admitere"),
-    (r"\boraru\b", "orar"),
-    (r"\borrar(?:ul)?\b", "orar"),
-    (r"\borra\b", "orar"),
-    (r"\bmetodolgie\b", "metodologie"),
-    (r"\bregulam(?:e)?nt\b", "regulament"),
-    (r"\bprocedrura\b", "procedura"),
+    (r"\badmiter[ew]\b", "admitere"),
+    (r"\bburs[aeiw]\b", "burse"),
+    (r"\bburselor\b", "burse"),
+    (r"\bbursele\b", "burse"),
     (r"\bcumuleaz[ae]\b", "cumulare"),
+    (r"\bcumulat[ae]?\b", "cumulare"),
+    (r"\bdoua\b", "2"),
 )
 
+TOKEN_ALIASES = {
+    "facultatii": "facultate",
+    "facultatea": "facultate",
+    "studentului": "student",
+    "studentilor": "studenti",
+    "burselor": "burse",
+    "bursei": "bursa",
+    "metodologiile": "metodologie",
+    "metodologia": "metodologie",
+    "regulamentul": "regulament",
+    "regulamentele": "regulamente",
+    "procedurile": "proceduri",
+    "admiterea": "admitere",
+    "inscrierea": "inscriere",
+    "beneficieze": "beneficia",
+    "beneficiez": "beneficia",
+    "beneficiaza": "beneficia",
+    "cumula": "cumulare",
+    "cumularea": "cumulare",
+    "cumuleaza": "cumulare",
+}
+
 STOPWORDS = {
-    "a", "ai", "al", "am", "ar", "as", "asa", "at", "au", "ca", "care", "ce", "cea", "cele", "cel",
-    "cei", "cum", "cu", "de", "despre", "din", "doar", "este", "fi", "fie", "in", "la", "ma", "mai",
-    "mi", "o", "pe", "pot", "poate", "sa", "sau", "se", "si", "sunt", "un", "una", "unde", "vreau",
+    "a", "ai", "al", "ale", "am", "ar", "as", "asta", "ca", "care", "ce", "cea", "cele", "cel",
+    "cei", "cum", "cu", "de", "din", "doar", "e", "este", "fi", "fie", "gasesc", "in", "la",
+    "mai", "ma", "mi", "o", "pe", "pentru", "pot", "poate", "sa", "sau", "se", "si", "sunt",
+    "un", "unei", "unui", "unde", "vreau",
 }
 
 DOMAIN_VOCABULARY = {
-    "admitere",
-    "burse",
-    "bursa",
-    "contact",
-    "secretariat",
-    "studenti",
-    "student",
-    "orar",
-    "orare",
-    "regulament",
-    "regulamente",
-    "metodologie",
-    "metodologii",
-    "procedura",
-    "proceduri",
-    "inscriere",
-    "inscrieri",
-    "informatica",
-    "facultate",
-    "program",
-    "uvt",
-    "cumulare",
-    "cumulare",
-    "beneficia",
-    "beneficieze",
-    "beneficii",
-    "bursei",
-    "informatii",
-    "informatie",
+    "admitere", "adresa", "anexa", "beneficia", "bursa", "burse", "candidat", "cazare",
+    "contact", "cumulare", "dosar", "email", "facultate", "informatica", "inscriere",
+    "informatii", "informatie", "metodologie", "metodologii", "orar", "orare", "procedura",
+    "proceduri", "program", "regulament", "regulamente", "secretariat", "student", "studenti",
+    "studentweb", "taxa", "taxe", "telefon", "uvt",
 }
 
-CORRECTION_SKIP_TOKENS = {
-    "informatii",
-    "informatie",
-    "detalii",
-    "general",
-}
-
-POLICY_PATTERNS = (
+POLICY_PHRASES = (
     "este posibil",
     "se poate",
     "pot beneficia",
     "poate beneficia",
-    "beneficiezi de",
     "beneficia de",
     "beneficieze de",
     "pot primi",
-    "cumulare",
-    "se cumuleaza",
-    "doua burse",
-    "2 burse",
-    "regulament",
-    "metodologie",
-    "procedura",
-    "eligibil",
+    "reguli",
     "conditii",
+    "eligibil",
+    "cumulare",
+    "cumuleaza",
+    "2 burse",
 )
 
-_PREPARED_INDEX_CACHE = None
-_PREPARED_INDEX_SIGNATURE = None
+POLICY_DOCUMENT_TERMS = ("regulament", "metodologie", "procedura", "anexa", "hotarare")
+SCHOLARSHIP_TERMS = ("bursa", "burse", "burselor", "bursieri", "sprijin financiar")
+CUMULATION_TERMS = ("cumulare", "cumuleaza", "cumula", "art 5", "art. 5")
+VECTOR_SEARCH_LIMIT = max(8, int(os.getenv("VECTOR_SEARCH_LIMIT", "18")))
+SEMANTIC_SCORE_WEIGHT = float(os.getenv("SEMANTIC_SCORE_WEIGHT", "58"))
+
+_PREPARED_INDEX_CACHE: dict | None = None
+_PREPARED_INDEX_SIGNATURE: tuple | None = None
 
 
 @dataclass(frozen=True)
@@ -148,44 +146,46 @@ class QueryAnalysis:
         return asdict(self)
 
 
-def normalize_common_terms(text: str) -> str:
-    normalized = f" {text} "
-
-    for pattern, replacement in COMMON_TEXT_PATTERNS:
-        normalized = re.sub(pattern, replacement, normalized)
-
-    return re.sub(r"\s+", " ", normalized).strip()
-
-
 def normalize(text: str) -> str:
-    normalized = unicodedata.normalize("NFKD", str(text).lower())
-    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-    return normalize_common_terms(normalized)
+    value = unicodedata.normalize("NFKD", str(text).lower())
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    value = re.sub(r"[’`']", "'", value)
+    value = re.sub(r"\s+", " ", value).strip()
+
+    for pattern, replacement in COMMON_REPLACEMENTS:
+        value = re.sub(pattern, replacement, value)
+
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _clean_for_tokens(text: str) -> str:
+    return re.sub(r"[^a-z0-9\s-]", " ", normalize(text))
+
+
+def _canonical_token(token: str) -> str:
+    return TOKEN_ALIASES.get(token, token)
 
 
 def tokenize(text: str, remove_stopwords: bool = True) -> list[str]:
-    normalized = normalize(text)
-    cleaned = re.sub(r"[^a-z0-9\s-]", " ", normalized)
-    tokens = [token.strip("-") for token in cleaned.split() if token.strip("-")]
-    if remove_stopwords:
-        tokens = [token for token in tokens if token not in STOPWORDS and len(token) >= 2]
+    tokens = []
+    for raw_token in _clean_for_tokens(text).split():
+        token = _canonical_token(raw_token.strip("-"))
+        if not token:
+            continue
+        if remove_stopwords and (token in STOPWORDS or len(token) < 2):
+            continue
+        tokens.append(token)
     return tokens
 
 
 def correct_query_terms(question: str) -> tuple[str, list[str]]:
-    normalized = normalize(question)
-    corrected_tokens = []
-    corrections = []
+    corrected_tokens: list[str] = []
+    corrections: list[str] = []
 
-    for token in tokenize(normalized, remove_stopwords=False):
+    for token in tokenize(question, remove_stopwords=False):
         replacement = token
-        if token in CORRECTION_SKIP_TOKENS:
-            corrected_tokens.append(token)
-            continue
-
         if token not in DOMAIN_VOCABULARY and len(token) >= 4 and not token.isdigit():
-            matches = get_close_matches(token, DOMAIN_VOCABULARY, n=1, cutoff=0.84)
+            matches = get_close_matches(token, DOMAIN_VOCABULARY, n=1, cutoff=0.82)
             if matches:
                 replacement = matches[0]
 
@@ -194,93 +194,109 @@ def correct_query_terms(question: str) -> tuple[str, list[str]]:
             corrections.append(f"{token}->{replacement}")
 
     corrected_text = " ".join(corrected_tokens).strip()
-    return corrected_text or normalized, corrections
+    return corrected_text or normalize(question), corrections
 
 
-def detect_intent(question: str) -> str:
+def _score_intents(question: str, tokens: Iterable[str]) -> dict[str, int]:
+    token_set = set(tokens)
     question_text = normalize(question)
     scores = {intent: 0 for intent in INTENT_KEYWORDS}
 
     for intent, keywords in INTENT_KEYWORDS.items():
         for keyword in keywords:
-            if keyword in question_text:
-                scores[intent] += 2
+            keyword_norm = normalize(keyword)
+            if " " in keyword_norm and keyword_norm in question_text:
+                scores[intent] += 4
+            elif keyword_norm in token_set:
+                scores[intent] += 3
+            elif keyword_norm in question_text:
+                scores[intent] += 1
 
-    if "program" in question_text and ("secretariat" in question_text or "contact" in question_text):
-        scores["contact"] += 2
-    if any(term in question_text for term in ("se poate", "este posibil", "cumulare")):
-        scores["regulamente"] += 3
-    if "burse" in question_text and any(term in question_text for term in ("doua", "2", "cumulare", "beneficia")):
-        scores["regulamente"] += 4
+    if "program" in token_set and {"secretariat", "contact"} & token_set:
+        scores["contact"] += 4
+    if {"burse", "bursa"} & token_set and {"2", "cumulare", "beneficia", "conditii", "eligibil"} & token_set:
+        scores["regulamente"] += 8
+    if any(phrase in question_text for phrase in POLICY_PHRASES):
+        scores["regulamente"] += 5
 
+    return scores
+
+
+def detect_intent(question: str) -> str:
+    tokens = tokenize(question)
+    scores = _score_intents(question, tokens)
     best_intent = max(scores, key=scores.get)
     return best_intent if scores[best_intent] > 0 else "general"
 
 
-def detect_policy_question(question: str, intent: str | None = None) -> bool:
-    normalized_question = normalize(question)
+def detect_policy_question(question: str, intent: str) -> bool:
+    question_text = normalize(question)
+    tokens = set(tokenize(question_text))
+
     if intent == "regulamente":
         return True
-
-    if any(pattern in normalized_question for pattern in POLICY_PATTERNS):
+    if any(phrase in question_text for phrase in POLICY_PHRASES):
         return True
-
-    if "burse" in normalized_question and any(token in normalized_question for token in ("doua", "2", "cumul", "beneficia")):
+    if {"regulament", "regulamente", "metodologie", "procedura", "proceduri"} & tokens:
+        return True
+    if {"burse", "bursa"} & tokens and {"2", "cumulare", "beneficia", "conditii", "eligibil"} & tokens:
         return True
 
     return False
 
 
-def build_page_type_preferences(intent: str, is_policy_question: bool) -> tuple[str, ...]:
+def build_page_type_preferences(intent: str, is_policy_question: bool, tokens: Iterable[str]) -> tuple[str, ...]:
+    token_set = set(tokens)
     if is_policy_question:
-        if intent == "burse":
+        if {"burse", "bursa"} & token_set:
             return ("regulamente", "burse", "studenti", "general")
-        if intent == "contact":
-            return ("contact", "general")
         if intent == "admitere":
             return ("regulamente", "admitere", "general")
         return ("regulamente", "studenti", "general", "burse")
 
-    return INTENT_TO_PAGE_TYPES.get(intent, INTENT_TO_PAGE_TYPES["general"])
+    return INTENT_PAGE_TYPES.get(intent, INTENT_PAGE_TYPES["general"])
 
 
-def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: bool) -> list[str]:
-    expanded = list(tokens)
-
+def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: bool) -> tuple[str, ...]:
+    expanded = list(dict.fromkeys(tokens))
     synonyms = {
         "orar": ("orar", "orare"),
-        "burse": ("bursa", "burse"),
-        "contact": ("contact", "secretariat", "telefon", "email"),
-        "admitere": ("admitere", "inscriere"),
-        "regulamente": ("regulament", "regulamente", "metodologie", "procedura"),
-        "studenti": ("studenti", "student"),
+        "burse": ("bursa", "burse", "burselor"),
+        "contact": ("contact", "secretariat", "telefon", "email", "adresa"),
+        "admitere": ("admitere", "inscriere", "candidat", "dosar"),
+        "regulamente": ("regulament", "regulamente", "metodologie", "procedura", "anexa"),
+        "studenti": ("student", "studenti", "studentweb"),
     }
 
-    for synonym in synonyms.get(intent, ()):
-        if synonym not in expanded:
-            expanded.append(synonym)
+    for token in synonyms.get(intent, ()):
+        if token not in expanded:
+            expanded.append(token)
 
     if is_policy_question:
-        for synonym in ("regulament", "metodologie", "procedura", "cumulare"):
-            if synonym not in expanded:
-                expanded.append(synonym)
+        for token in ("regulament", "metodologie", "procedura", "anexa", "conditii", "eligibil"):
+            if token not in expanded:
+                expanded.append(token)
+        if {"burse", "bursa"} & set(expanded):
+            for token in ("bursa", "burse", "burselor", "cumulare", "beneficia"):
+                if token not in expanded:
+                    expanded.append(token)
 
-    return expanded
+    return tuple(expanded)
 
 
 def analyze_query(question: str) -> QueryAnalysis:
     normalized_question = normalize(question)
     corrected_question, corrections = correct_query_terms(question)
-    intent = detect_intent(corrected_question or normalized_question)
-    is_policy_question = detect_policy_question(corrected_question or normalized_question, intent=intent)
-    tokens = tuple(tokenize(corrected_question or normalized_question))
-    expanded_tokens = tuple(expand_query_tokens(tokens, intent, is_policy_question))
-    page_type_preferences = build_page_type_preferences(intent, is_policy_question)
+    intent = detect_intent(corrected_question)
+    is_policy_question = detect_policy_question(corrected_question, intent)
+    tokens = tuple(tokenize(corrected_question))
+    page_type_preferences = build_page_type_preferences(intent, is_policy_question, tokens)
+    expanded_tokens = expand_query_tokens(tokens, intent, is_policy_question)
 
     return QueryAnalysis(
         original_question=question,
         normalized_question=normalized_question,
-        corrected_question=corrected_question or normalized_question,
+        corrected_question=corrected_question,
         tokens=tokens,
         expanded_tokens=expanded_tokens,
         intent=intent,
@@ -290,28 +306,89 @@ def analyze_query(question: str) -> QueryAnalysis:
     )
 
 
+def _counter(tokens: Iterable[str]) -> Counter:
+    return Counter(tokens)
+
+
+def _url_path(url: str) -> str:
+    return (urlparse(url).path or "/").rstrip("/") or "/"
+
+
+def _url_slug_tokens(url: str) -> list[str]:
+    path = PurePosixPath(_url_path(url))
+    return tokenize(" ".join(path.parts))
+
+
+def _contains_any(text: str, terms: Iterable[str]) -> bool:
+    return any(term in text for term in terms)
+
+
+def _is_document_url(url: str) -> bool:
+    return PurePosixPath(urlparse(url).path.lower()).suffix in {".pdf", ".docx", ".txt"}
+
+
+def _is_homepage(url: str) -> bool:
+    return _url_path(url) == "/"
+
+
+def _is_institutional_policy_document(
+    title_norm: str,
+    url_norm: str,
+    text_norm: str,
+    page_type: str,
+    is_document: bool,
+) -> bool:
+    combined_head = f"{title_norm} {url_norm} {text_norm[:2600]}"
+    has_document_terms = _contains_any(combined_head, POLICY_DOCUMENT_TERMS)
+    if not has_document_terms:
+        return False
+
+    hosted_by_uvt = ".uvt.ro" in url_norm or "uvt.ro" in url_norm
+    if is_document and hosted_by_uvt:
+        return True
+
+    has_institutional_terms = "universitatea de vest" in combined_head or "www.uvt.ro" in combined_head
+    is_policy_page = page_type == "regulamente" and ("uvt.ro/organizare" in url_norm or "www.uvt.ro" in url_norm)
+    return has_document_terms and has_institutional_terms and is_policy_page
+
+
 def _prepare_chunk(chunk: dict) -> dict:
     title = str(chunk.get("title") or "")
     url = str(chunk.get("url") or "")
     chunk_text = str(chunk.get("chunk_text") or chunk.get("chunk") or "")
+    page_type = str(chunk.get("page_type") or "general")
+    is_document = _is_document_url(url)
 
+    title_norm = normalize(title)
+    url_norm = normalize(url)
+    text_norm = normalize(chunk_text)
     title_tokens = tokenize(title)
-    url_tokens = tokenize(url)
+    url_tokens = _url_slug_tokens(url)
     text_tokens = tokenize(chunk_text)
-    combined_tokens = title_tokens + url_tokens + text_tokens
+    token_set = set(title_tokens + url_tokens + text_tokens)
 
     return {
         **chunk,
-        "_title_norm": normalize(title),
-        "_url_norm": normalize(url),
-        "_text_norm": normalize(chunk_text),
+        "_title_norm": title_norm,
+        "_url_norm": url_norm,
+        "_text_norm": text_norm,
         "_title_tokens": title_tokens,
         "_url_tokens": url_tokens,
         "_text_tokens": text_tokens,
-        "_title_counter": Counter(title_tokens),
-        "_url_counter": Counter(url_tokens),
-        "_text_counter": Counter(text_tokens),
-        "_token_set": set(combined_tokens),
+        "_title_counter": _counter(title_tokens),
+        "_url_counter": _counter(url_tokens),
+        "_text_counter": _counter(text_tokens),
+        "_token_set": token_set,
+        "_path": _url_path(url),
+        "_is_homepage": _is_homepage(url),
+        "_is_document": is_document,
+        "_is_institutional_policy": _is_institutional_policy_document(
+            title_norm,
+            url_norm,
+            text_norm,
+            page_type,
+            is_document,
+        ),
     }
 
 
@@ -326,111 +403,205 @@ def prepare_index(index_document: dict) -> dict:
     if _PREPARED_INDEX_CACHE is not None and _PREPARED_INDEX_SIGNATURE == signature:
         return _PREPARED_INDEX_CACHE
 
-    raw_chunks = index_document.get("chunks", [])
-    prepared_chunks = [_prepare_chunk(chunk) for chunk in raw_chunks if isinstance(chunk, dict) and chunk.get("chunk_text")]
+    chunks = [
+        _prepare_chunk(chunk)
+        for chunk in index_document.get("chunks", [])
+        if isinstance(chunk, dict) and chunk.get("chunk_text")
+    ]
     document_frequency = Counter()
-
-    for chunk in prepared_chunks:
+    for chunk in chunks:
         document_frequency.update(chunk["_token_set"])
 
-    total_chunks = max(1, len(prepared_chunks))
-    inverse_document_frequency = {
+    total_chunks = max(1, len(chunks))
+    idf = {
         token: math.log(1 + (total_chunks - frequency + 0.5) / (frequency + 0.5))
         for token, frequency in document_frequency.items()
     }
 
-    prepared_index = {
-        "signature": signature,
-        "chunks": prepared_chunks,
-        "idf": inverse_document_frequency,
-    }
-    _PREPARED_INDEX_CACHE = prepared_index
+    prepared = {"signature": signature, "chunks": chunks, "idf": idf}
+    _PREPARED_INDEX_CACHE = prepared
     _PREPARED_INDEX_SIGNATURE = signature
-    return prepared_index
+    return prepared
 
 
-def _field_overlap_score(query_tokens: Iterable[str], counter: Counter, idf: dict[str, float], weight: float) -> float:
-    score = 0.0
-
-    for token in query_tokens:
-        score += idf.get(token, 0.6) * counter.get(token, 0) * weight
-
-    return score
+def _field_overlap_score(tokens: Iterable[str], counter: Counter, idf: dict[str, float], weight: float) -> float:
+    return sum(idf.get(token, 0.6) * counter.get(token, 0) * weight for token in tokens)
 
 
-def _metadata_boost(prepared_chunk: dict, analysis: QueryAnalysis, selected_faculty: str) -> tuple[float, list[str]]:
-    score = 0.0
+def _lexical_score(chunk: dict, analysis: QueryAnalysis, idf: dict[str, float]) -> tuple[float, list[str]]:
     signals: list[str] = []
-    page_type = prepared_chunk.get("page_type") or "general"
-    faculty_id = prepared_chunk.get("faculty_id") or "uvt"
-    title_norm = prepared_chunk["_title_norm"]
-    url_norm = prepared_chunk["_url_norm"]
-    path = (urlparse(prepared_chunk.get("url", "")).path or "/").rstrip("/") or "/"
+    score = 0.0
 
-    if faculty_id == selected_faculty:
-        score += 26
-        signals.append("faculty_exact")
-    elif faculty_id == "uvt":
-        boost = 20 if analysis.is_policy_question else 8
-        score += boost
-        signals.append("faculty_uvt")
-    elif selected_faculty != "uvt":
-        score -= 42
-    elif analysis.is_policy_question:
-        score -= 28
-        signals.append("policy_other_faculty_penalty")
+    score += _field_overlap_score(analysis.tokens, chunk["_title_counter"], idf, 4.0)
+    score += _field_overlap_score(analysis.tokens, chunk["_url_counter"], idf, 3.4)
+    score += _field_overlap_score(analysis.tokens, chunk["_text_counter"], idf, 1.8)
+
+    expanded_only = [token for token in analysis.expanded_tokens if token not in analysis.tokens]
+    score += _field_overlap_score(expanded_only, chunk["_title_counter"], idf, 1.8)
+    score += _field_overlap_score(expanded_only, chunk["_url_counter"], idf, 1.5)
+    score += _field_overlap_score(expanded_only, chunk["_text_counter"], idf, 0.8)
+
+    haystack = f"{chunk['_title_norm']} {chunk['_url_norm']} {chunk['_text_norm']}"
+    matched_tokens = [token for token in analysis.tokens if token in chunk["_token_set"] or token in haystack]
+    if matched_tokens:
+        signals.append(f"lexical:{len(set(matched_tokens))}")
+
+    if analysis.tokens and all(token in haystack for token in analysis.tokens):
+        score += 10
+        signals.append("all_terms")
+
+    corrected_phrase = normalize(analysis.corrected_question)
+    if len(corrected_phrase) >= 12 and corrected_phrase in haystack:
+        score += 18
+        signals.append("phrase")
+
+    return score, signals
+
+
+def _page_type_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str]]:
+    page_type = str(chunk.get("page_type") or "general")
+    signals: list[str] = []
 
     if page_type in analysis.page_type_preferences:
         position = analysis.page_type_preferences.index(page_type)
-        page_boost = max(6, 20 - position * 5)
-        score += page_boost
+        score = max(8, 28 - position * 6)
         signals.append(f"page_type:{page_type}")
-    elif page_type == "general":
-        score += 2
-    else:
-        score -= 4
+        return score, signals
 
-    for hint in PAGE_TYPE_HINTS.get(analysis.intent, ()):
-        if hint in url_norm or hint in title_norm:
-            score += 10
-            signals.append(f"hint:{analysis.intent}")
+    if page_type == "general":
+        return -2, ["page_type:general"]
+
+    return -10, [f"page_type_mismatch:{page_type}"]
+
+
+def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str]]:
+    title_url = f"{chunk['_title_norm']} {chunk['_url_norm']}"
+    path = chunk["_path"].lower()
+    signals: list[str] = []
+    score = 0.0
+
+    for hint in PAGE_HINTS.get(analysis.intent, ()):
+        if hint in title_url:
+            score += 14
+            signals.append(f"hint:{hint}")
             break
 
-    if analysis.intent == "contact" and any(term in f"{title_norm} {url_norm}" for term in ("secretariat", "contact")):
-        score += 12
-        signals.append("contact_specific")
-    if analysis.intent == "orar" and any(term in f"{title_norm} {url_norm}" for term in ("orare", "orar")):
-        score += 14
-        signals.append("orar_specific")
-    if analysis.intent == "admitere" and "admitere" in f"{title_norm} {url_norm}":
-        score += 14
-        signals.append("admitere_specific")
-    if analysis.intent == "burse" and "burs" in f"{title_norm} {url_norm}":
-        score += 10
-        signals.append("burse_specific")
-
-    if analysis.is_policy_question:
-        combined_norm = f"{title_norm} {url_norm} {prepared_chunk['_text_norm']}"
-        if page_type == "regulamente":
+    if analysis.intent == "orar":
+        if path == "/orare":
+            score += 44
+            signals.append("schedule_exact_path")
+        elif path == "/orar":
             score += 34
-            signals.append("policy_regulations")
-        if faculty_id == "uvt":
+            signals.append("schedule_exact_path")
+        elif "orar" in path or "orare" in path:
+            score += 20
+            signals.append("schedule_path")
+    elif analysis.intent == "contact":
+        if path in {"/contact", "/secretariat"}:
+            score += 32
+            signals.append("contact_exact_path")
+        elif "contact" in path or "secretariat" in path:
             score += 18
-            signals.append("policy_uvt")
-        if any(term in f"{title_norm} {url_norm}" for term in ("regulament", "metodolog", "procedur")):
-            score += 18
-            signals.append("policy_title")
-        if any(token in analysis.expanded_tokens for token in ("burse", "bursa")):
-            if "burs" in combined_norm:
-                score += 14
-                signals.append("policy_topic_burse")
-            else:
-                score -= 16
-                signals.append("policy_topic_penalty")
+            signals.append("contact_path")
+    elif analysis.intent == "admitere":
+        if path in {"/admitere", "/admitere-licenta", "/admitere-masterat"}:
+            score += 28
+            signals.append("admission_path")
+        elif "admitere" in path:
+            score += 16
+            signals.append("admission_related_path")
+    elif analysis.intent == "burse":
+        if "burse" in path or "bursa" in path:
+            score += 22
+            signals.append("scholarship_path")
 
-    if path == "/" or is_generic_page_title(prepared_chunk.get("title", "")):
-        score -= 20
+    if chunk["_is_document"]:
+        score += 6
+        signals.append("document")
+
+    if chunk["_is_homepage"] or is_generic_page_title(chunk.get("title", "")):
+        score -= 42
         signals.append("generic_penalty")
+
+    return score, signals
+
+
+def _faculty_score(chunk: dict, analysis: QueryAnalysis, selected_faculty: str) -> tuple[float, list[str]]:
+    faculty_id = str(chunk.get("faculty_id") or GENERAL_FACULTY_ID)
+    is_policy_document = chunk["_is_institutional_policy"]
+    signals: list[str] = []
+    score = 0.0
+
+    if selected_faculty == GENERAL_FACULTY_ID:
+        if faculty_id == GENERAL_FACULTY_ID:
+            score += 14
+            signals.append("faculty:uvt")
+        elif analysis.is_policy_question and is_policy_document:
+            score += 18
+            signals.append("faculty:hosted_policy")
+        elif analysis.is_policy_question:
+            score -= 14
+            signals.append("faculty:other_policy_penalty")
+    else:
+        if faculty_id == selected_faculty:
+            score += 34
+            signals.append("faculty:exact")
+        elif faculty_id == GENERAL_FACULTY_ID:
+            score += 10 if not analysis.is_policy_question else 22
+            signals.append("faculty:uvt")
+        elif analysis.is_policy_question and is_policy_document:
+            score += 12
+            signals.append("faculty:hosted_policy")
+        else:
+            score -= 48
+            signals.append("faculty:mismatch")
+
+    return score, signals
+
+
+def _policy_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str]]:
+    if not analysis.is_policy_question:
+        return 0.0, []
+
+    page_type = str(chunk.get("page_type") or "general")
+    combined = f"{chunk['_title_norm']} {chunk['_url_norm']} {chunk['_text_norm']}"
+    topic_head = f"{chunk['_title_norm']} {chunk['_url_norm']} {chunk['_text_norm'][:1800]}"
+    query_tokens = set(analysis.expanded_tokens)
+    signals: list[str] = []
+    score = 0.0
+
+    if chunk["_is_institutional_policy"]:
+        score += 52
+        signals.append("policy:institutional_document")
+    if page_type == "regulamente":
+        score += 36
+        signals.append("policy:regulations")
+    if _contains_any(combined, POLICY_DOCUMENT_TERMS):
+        score += 18
+        signals.append("policy:document_terms")
+
+    scholarship_question = bool({"burse", "bursa", "burselor"} & query_tokens)
+    if scholarship_question:
+        if _contains_any(topic_head, SCHOLARSHIP_TERMS):
+            score += 26
+            signals.append("policy:scholarship_topic")
+        else:
+            score -= 20
+            signals.append("policy:topic_missing")
+
+    asks_cumulation = bool({"2", "cumulare"} & query_tokens)
+    if asks_cumulation:
+        if _contains_any(combined, CUMULATION_TERMS):
+            score += 44
+            signals.append("policy:cumulation")
+        elif scholarship_question:
+            score -= 18
+            signals.append("policy:cumulation_missing")
+
+    title_norm = chunk["_title_norm"]
+    if title_norm in {"regulamente - uvt", "legislatie - uvt"} and not _contains_any(combined, SCHOLARSHIP_TERMS + CUMULATION_TERMS):
+        score -= 36
+        signals.append("policy:generic_regulation_penalty")
 
     return score, signals
 
@@ -441,116 +612,284 @@ def score_chunk_candidate(
     selected_faculty: str,
     idf: dict[str, float],
 ) -> dict:
-    query_tokens = analysis.expanded_tokens or analysis.tokens
-    lexical_score = 0.0
-    lexical_score += _field_overlap_score(query_tokens, prepared_chunk["_text_counter"], idf, 1.6)
-    lexical_score += _field_overlap_score(query_tokens, prepared_chunk["_title_counter"], idf, 3.2)
-    lexical_score += _field_overlap_score(query_tokens, prepared_chunk["_url_counter"], idf, 2.8)
+    score = 0.0
+    signals: list[str] = []
 
-    text_norm = prepared_chunk["_text_norm"]
-    title_norm = prepared_chunk["_title_norm"]
-    url_norm = prepared_chunk["_url_norm"]
-
-    for token in analysis.tokens:
-        if token in title_norm:
-            lexical_score += 2.8
-        elif token in url_norm:
-            lexical_score += 2.2
-        elif token in text_norm:
-            lexical_score += 1.4
-
-    metadata_score, signals = _metadata_boost(prepared_chunk, analysis, selected_faculty)
-    total_score = max(0.0, lexical_score + metadata_score)
+    for component_score, component_signals in (
+        _lexical_score(prepared_chunk, analysis, idf),
+        _faculty_score(prepared_chunk, analysis, selected_faculty),
+        _page_type_score(prepared_chunk, analysis),
+        _specific_page_score(prepared_chunk, analysis),
+        _policy_score(prepared_chunk, analysis),
+    ):
+        score += component_score
+        signals.extend(component_signals)
 
     return {
         "chunk_id": prepared_chunk.get("chunk_id"),
-        "faculty_id": prepared_chunk.get("faculty_id", "uvt"),
+        "faculty_id": prepared_chunk.get("faculty_id", GENERAL_FACULTY_ID),
         "page_type": prepared_chunk.get("page_type", "general"),
         "title": prepared_chunk.get("title", prepared_chunk.get("url", "")),
         "url": prepared_chunk.get("url", ""),
         "chunk_text": prepared_chunk.get("chunk_text", ""),
         "last_indexed": prepared_chunk.get("last_indexed"),
-        "retrieval_score": round(total_score, 3),
-        "match_signals": signals,
+        "retrieval_score": round(max(0.0, score), 3),
+        "match_signals": list(dict.fromkeys(signals)),
     }
 
 
+def _candidate_allowed(chunk: dict, analysis: QueryAnalysis, selected_faculty: str) -> bool:
+    faculty_id = str(chunk.get("faculty_id") or GENERAL_FACULTY_ID)
+    if selected_faculty == GENERAL_FACULTY_ID:
+        return True
+    if faculty_id in {selected_faculty, GENERAL_FACULTY_ID}:
+        return True
+    return analysis.is_policy_question and chunk.get("_is_institutional_policy", False)
+
+
+def _prefer_policy_candidates(scored: list[dict], analysis: QueryAnalysis) -> list[dict]:
+    if not analysis.is_policy_question:
+        return scored
+
+    if {"burse", "bursa", "burselor"} & set(analysis.expanded_tokens):
+        topic_candidates = [
+            chunk for chunk in scored
+            if "policy:scholarship_topic" in chunk.get("match_signals", [])
+        ]
+        if topic_candidates:
+            strict_topic_candidates = [
+                chunk for chunk in topic_candidates
+                if chunk.get("page_type") in {"regulamente", "burse"}
+                or "burs" in normalize(f"{chunk.get('title', '')} {chunk.get('url', '')}")
+            ]
+            scored = strict_topic_candidates or topic_candidates
+
+    preferred = [
+        chunk for chunk in scored
+        if chunk.get("page_type") == "regulamente"
+        or any(signal.startswith("policy:institutional") for signal in chunk.get("match_signals", []))
+    ]
+    return preferred if preferred else scored
+
+
 def select_diverse_chunks(scored_chunks: list[dict], top_k: int, max_chunks_per_url: int = 1) -> list[dict]:
-    selected = []
+    selected: list[dict] = []
     url_counts: dict[str, int] = {}
 
     for chunk in scored_chunks:
         url = chunk.get("url", "")
-        current_count = url_counts.get(url, 0)
-        if current_count >= max_chunks_per_url:
+        if not url:
+            continue
+        if url_counts.get(url, 0) >= max_chunks_per_url:
             continue
 
         selected.append(chunk)
-        url_counts[url] = current_count + 1
-
+        url_counts[url] = url_counts.get(url, 0) + 1
         if len(selected) >= top_k:
             break
 
     return selected
 
 
-def rank_index(question: str, index_document: dict, selected_faculty: str, top_k: int = 6) -> dict:
-    analysis = analyze_query(question)
-    prepared_index = prepare_index(index_document)
-    scored = []
+def build_query_embedding_text(question: str, analysis: QueryAnalysis) -> str:
+    return (
+        f"Intrebare student: {question}\n"
+        f"Intrebare normalizata: {analysis.corrected_question}\n"
+        f"Intent: {analysis.intent}\n"
+        f"Intrebare de regulament/metodologie: {analysis.is_policy_question}\n"
+        f"Termeni importanti: {' '.join(analysis.expanded_tokens)}"
+    )
 
-    for prepared_chunk in prepared_index["chunks"]:
-        candidate_faculty = prepared_chunk.get("faculty_id", "uvt")
-        if selected_faculty != "uvt" and candidate_faculty not in {selected_faculty, "uvt"}:
+
+def _vector_search_passes(analysis: QueryAnalysis, selected_faculty: str) -> list[dict]:
+    preferred_page_types = list(analysis.page_type_preferences[:4])
+    passes: list[dict] = []
+
+    def add_pass(faculty_ids: list[str] | None, page_types: list[str] | None, label: str) -> None:
+        candidate = {
+            "faculty_ids": faculty_ids,
+            "page_types": page_types,
+            "label": label,
+        }
+        if candidate not in passes:
+            passes.append(candidate)
+
+    if selected_faculty != GENERAL_FACULTY_ID:
+        add_pass([selected_faculty], preferred_page_types, "selected_faculty_page_type")
+        add_pass([selected_faculty], None, "selected_faculty")
+        if analysis.is_policy_question:
+            add_pass([GENERAL_FACULTY_ID], preferred_page_types, "uvt_policy_page_type")
+            add_pass([GENERAL_FACULTY_ID], None, "uvt_policy")
+        else:
+            add_pass([selected_faculty, GENERAL_FACULTY_ID], preferred_page_types, "faculty_or_uvt_page_type")
+    else:
+        add_pass([GENERAL_FACULTY_ID], preferred_page_types, "uvt_page_type")
+        add_pass([GENERAL_FACULTY_ID], None, "uvt")
+
+    add_pass(None, preferred_page_types, "any_faculty_page_type")
+    add_pass(None, None, "any_faculty")
+    return passes
+
+
+def _merge_semantic_hits(hit_groups: list[tuple[str, list[dict]]]) -> list[dict]:
+    merged: dict[str, dict] = {}
+    for label, hits in hit_groups:
+        for hit in hits:
+            chunk_id = str(hit.get("chunk_id") or "")
+            if not chunk_id:
+                continue
+            previous = merged.get(chunk_id)
+            if previous is None or float(hit.get("semantic_score", 0)) > float(previous.get("semantic_score", 0)):
+                merged[chunk_id] = {**hit, "vector_filter": label}
+            else:
+                previous.setdefault("vector_filter", label)
+    return list(merged.values())
+
+
+def _retrieve_semantic_candidates(question: str, analysis: QueryAnalysis, selected_faculty: str) -> list[dict]:
+    query_vector = embed_text(build_query_embedding_text(question, analysis))
+    hit_groups: list[tuple[str, list[dict]]] = []
+
+    for search_pass in _vector_search_passes(analysis, selected_faculty):
+        hits = search_chunks(
+            query_vector=query_vector,
+            faculty_ids=search_pass["faculty_ids"],
+            page_types=search_pass["page_types"],
+            limit=VECTOR_SEARCH_LIMIT,
+        )
+        hit_groups.append((search_pass["label"], hits))
+
+    return _merge_semantic_hits(hit_groups)
+
+
+def _score_semantic_candidates(
+    hits: list[dict],
+    analysis: QueryAnalysis,
+    selected_faculty: str,
+    idf: dict[str, float],
+) -> list[dict]:
+    scored: list[dict] = []
+
+    for hit in hits:
+        prepared_chunk = _prepare_chunk(hit)
+        if not _candidate_allowed(prepared_chunk, analysis, selected_faculty):
             continue
 
-        scored_chunk = score_chunk_candidate(
-            prepared_chunk,
-            analysis,
-            selected_faculty,
-            prepared_index["idf"],
+        candidate = score_chunk_candidate(prepared_chunk, analysis, selected_faculty, idf)
+        semantic_score = float(hit.get("semantic_score", 0.0) or 0.0)
+        if semantic_score <= 0 and candidate["retrieval_score"] <= 0:
+            continue
+
+        candidate["semantic_score"] = round(semantic_score, 6)
+        candidate["vector_filter"] = hit.get("vector_filter", "")
+        candidate["retrieval_score"] = round(
+            candidate["retrieval_score"] + semantic_score * SEMANTIC_SCORE_WEIGHT,
+            3,
         )
-        if scored_chunk["retrieval_score"] > 0:
-            scored.append(scored_chunk)
+        candidate["match_signals"] = list(dict.fromkeys([
+            *candidate.get("match_signals", []),
+            f"semantic:{semantic_score:.2f}",
+            f"vector_filter:{hit.get('vector_filter', 'unknown')}",
+        ]))
+        scored.append(candidate)
 
-    if analysis.is_policy_question:
-        preferred_scored = [
-            item for item in scored
-            if item.get("faculty_id") == "uvt" or item.get("page_type") == "regulamente"
-        ]
-        if preferred_scored:
-            scored = preferred_scored
-
+    scored = _prefer_policy_candidates(scored, analysis)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
-    top_chunks = select_diverse_chunks(scored, top_k=top_k)
-    confidence = compute_confidence(top_chunks, analysis)
+    return scored
+
+
+def rank_vector_index(question: str, index_document: dict, selected_faculty: str, top_k: int = 6) -> dict:
+    analysis = analyze_query(question)
+    prepared_index = prepare_index(index_document)
+    semantic_hits = _retrieve_semantic_candidates(question, analysis, selected_faculty)
+    scored = _score_semantic_candidates(
+        semantic_hits,
+        analysis,
+        selected_faculty,
+        prepared_index.get("idf", {}),
+    )
+    chunks = select_diverse_chunks(scored, top_k=top_k)
+    confidence = compute_confidence(chunks, analysis)
 
     return {
         "analysis": analysis.to_dict(),
-        "chunks": top_chunks,
+        "chunks": chunks,
         "confidence": confidence["label"],
         "confidence_score": confidence["score"],
         "confidence_reason": confidence["reason"],
+        "retrieval_backend": "qdrant",
+        "candidate_count": len(semantic_hits),
     }
 
 
-def rank_runtime_chunks(chunks: list[dict], question: str, selected_faculty: str, idf: dict[str, float] | None = None, top_k: int = 4) -> dict:
+def rank_lexical_index(question: str, index_document: dict, selected_faculty: str, top_k: int = 6) -> dict:
     analysis = analyze_query(question)
-    prepared_chunks = [_prepare_chunk(chunk) for chunk in chunks if chunk.get("chunk_text")]
-    scored = []
+    prepared_index = prepare_index(index_document)
+    scored: list[dict] = []
 
-    for prepared_chunk in prepared_chunks:
-        scored_chunk = score_chunk_candidate(prepared_chunk, analysis, selected_faculty, idf or {})
-        if scored_chunk["retrieval_score"] > 0:
-            scored.append(scored_chunk)
+    for prepared_chunk in prepared_index["chunks"]:
+        if not _candidate_allowed(prepared_chunk, analysis, selected_faculty):
+            continue
+        candidate = score_chunk_candidate(prepared_chunk, analysis, selected_faculty, prepared_index["idf"])
+        if candidate["retrieval_score"] > 0:
+            scored.append(candidate)
 
+    scored = _prefer_policy_candidates(scored, analysis)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
-    top_chunks = select_diverse_chunks(scored, top_k=top_k)
-    confidence = compute_confidence(top_chunks, analysis)
+    chunks = select_diverse_chunks(scored, top_k=top_k)
+    confidence = compute_confidence(chunks, analysis)
 
     return {
         "analysis": analysis.to_dict(),
-        "chunks": top_chunks,
+        "chunks": chunks,
+        "confidence": confidence["label"],
+        "confidence_score": confidence["score"],
+        "confidence_reason": confidence["reason"],
+        "retrieval_backend": "local_json_lexical",
+    }
+
+
+def rank_index(question: str, index_document: dict, selected_faculty: str, top_k: int = 6) -> dict:
+    try:
+        result = rank_vector_index(question, index_document, selected_faculty, top_k=top_k)
+        if result.get("chunks"):
+            return result
+        result["confidence_reason"] = "Qdrant a raspuns, dar nu a returnat fragmente oficiale relevante."
+        return result
+    except Exception as exc:
+        result = rank_lexical_index(question, index_document, selected_faculty, top_k=top_k)
+        result["retrieval_backend"] = "local_json_fallback"
+        result["vector_error"] = str(exc)
+        result["confidence_reason"] = (
+            f"{result.get('confidence_reason', '')} "
+            "Fallback lexical folosit deoarece Qdrant sau Ollama nu este disponibil."
+        ).strip()
+        return result
+
+
+def rank_runtime_chunks(
+    chunks: list[dict],
+    question: str,
+    selected_faculty: str,
+    idf: dict[str, float] | None = None,
+    top_k: int = 4,
+) -> dict:
+    analysis = analyze_query(question)
+    prepared_chunks = [_prepare_chunk(chunk) for chunk in chunks if chunk.get("chunk_text")]
+    scored = [
+        score_chunk_candidate(chunk, analysis, selected_faculty, idf or {})
+        for chunk in prepared_chunks
+        if _candidate_allowed(chunk, analysis, selected_faculty)
+    ]
+    scored = [chunk for chunk in scored if chunk["retrieval_score"] > 0]
+    scored = _prefer_policy_candidates(scored, analysis)
+    scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
+    selected = select_diverse_chunks(scored, top_k=top_k)
+    confidence = compute_confidence(selected, analysis)
+
+    return {
+        "analysis": analysis.to_dict(),
+        "chunks": selected,
         "confidence": confidence["label"],
         "confidence_score": confidence["score"],
         "confidence_reason": confidence["reason"],
@@ -566,32 +905,31 @@ def compute_confidence(scored_chunks: list[dict], analysis: QueryAnalysis | dict
         }
 
     analysis_dict = analysis.to_dict() if isinstance(analysis, QueryAnalysis) else (analysis or {})
-    best_score = float(scored_chunks[0].get("retrieval_score", 0.0))
+    top = scored_chunks[0]
+    best_score = float(top.get("retrieval_score", 0.0))
     second_score = float(scored_chunks[1].get("retrieval_score", 0.0)) if len(scored_chunks) > 1 else 0.0
-    unique_pages = len({chunk.get("url") for chunk in scored_chunks[:3] if chunk.get("url")})
-    unique_signals = len(set(scored_chunks[0].get("match_signals", [])))
+    unique_pages = len({chunk.get("url") for chunk in scored_chunks[:4] if chunk.get("url")})
+    signals = set(top.get("match_signals", []))
 
-    numeric_score = int(min(100, best_score * 2.1 + second_score * 0.45 + unique_pages * 5 + unique_signals * 4))
+    numeric_score = int(min(100, 28 + best_score * 0.45 + second_score * 0.12 + unique_pages * 4 + len(signals) * 2))
 
-    if analysis_dict.get("is_policy_question") and scored_chunks[0].get("page_type") == "regulamente":
-        numeric_score = min(100, numeric_score + 6)
+    if "generic_penalty" in signals:
+        numeric_score = min(numeric_score, 58)
+    if analysis_dict.get("is_policy_question") and not any(signal.startswith("policy:") for signal in signals):
+        numeric_score = min(numeric_score, 48)
+    if analysis_dict.get("is_policy_question") and "policy:cumulation_missing" in signals:
+        numeric_score = min(numeric_score, 72)
+    if top.get("page_type") in analysis_dict.get("page_type_preferences", ()):
+        numeric_score = min(100, numeric_score + 4)
 
     if numeric_score >= 78:
         label = "high"
+        reason = "Sursele potrivite corespund bine cu intrebarea, facultatea si tipul paginii."
     elif numeric_score >= 52:
         label = "medium"
+        reason = "Exista surse oficiale relevante, dar potrivirea are unele limite."
     else:
         label = "low"
-
-    if label == "high":
-        reason = "Sursele corespund bine pe facultate, tip de pagina si continut."
-    elif label == "medium":
-        reason = "Exista surse oficiale relevante, dar potrivirea nu este perfecta."
-    else:
         reason = "Au fost gasite doar dovezi partiale sau prea generale."
 
-    return {
-        "label": label,
-        "score": numeric_score,
-        "reason": reason,
-    }
+    return {"label": label, "score": numeric_score, "reason": reason}

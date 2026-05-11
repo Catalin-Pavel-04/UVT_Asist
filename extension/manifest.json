@@ -1,7 +1,7 @@
 {
   "name": "UVT Asist",
-  "description": "Asistent UVT cu RAG peste surse oficiale si backend Flask",
-  "version": "0.4.0",
+  "description": "Asistent UVT cu RAG local peste surse oficiale, Ollama si Qdrant",
+  "version": "0.5.0",
   "manifest_version": 3,
   "action": {
     "default_title": "UVT Asist",

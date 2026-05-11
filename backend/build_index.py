@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from faculties import FACULTIES
 from live_fetch import extract_candidate_links, fetch_page, get_url_extension
-from page_index import build_index_document, save_index
+from page_index import build_index_document, normalize_url, save_index
+from vector_indexer import rebuild_vector_index
 
 PRIORITY_PATHS = (
     "/orare/",
@@ -24,83 +25,59 @@ PRIORITY_PATHS = (
     "/proceduri/",
     "/procedura/",
 )
-HTML_LIKE_EXTENSIONS = ("", ".html", ".htm", ".php", ".aspx")
-DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".txt")
-IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
-
-def normalize_hostname(hostname: str) -> str:
-    hostname = hostname.strip().lower()
-    if hostname.startswith("www."):
-        return hostname[4:]
-    return hostname
-
-
-def normalize_url(url: str) -> str:
-    parsed = urlparse(url)
-    scheme = "https"
-    host = normalize_hostname(parsed.hostname or "")
-    path = parsed.path or "/"
-    if not path.startswith("/"):
-        path = f"/{path}"
-
-    path = path.rstrip("/") or "/"
-    query = f"?{parsed.query}" if parsed.query else ""
-    return f"{scheme}://{host}{path}{query}"
+HTML_EXTENSIONS = {"", ".html", ".htm", ".php", ".aspx"}
+DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
 def unique_urls(urls: list[str]) -> list[str]:
-    seen = set()
-    ordered_urls = []
+    seen: set[str] = set()
+    ordered: list[str] = []
 
     for url in urls:
-        normalized_url = normalize_url(url)
-        if not normalized_url or normalized_url in seen:
-            continue
+        normalized = normalize_url(url)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            ordered.append(url)
 
-        seen.add(normalized_url)
-        ordered_urls.append(url)
-
-    return ordered_urls
+    return ordered
 
 
 def is_html_like_url(url: str) -> bool:
-    return get_url_extension(url) in HTML_LIKE_EXTENSIONS
+    return get_url_extension(url) in HTML_EXTENSIONS
 
 
 def build_seed_urls(base_urls: list[str]) -> list[str]:
-    candidates = []
-
+    seeds: list[str] = []
     for base_url in base_urls:
-        candidates.append(base_url)
-        for path in PRIORITY_PATHS:
-            candidates.append(urljoin(base_url, path.lstrip("/")))
-
-    return unique_urls(candidates)
+        seeds.append(base_url)
+        seeds.extend(urljoin(base_url, path.lstrip("/")) for path in PRIORITY_PATHS)
+    return unique_urls(seeds)
 
 
-def score_discovered_url(url: str) -> tuple[int, int, str]:
+def score_url(url: str) -> tuple[int, int, str]:
     normalized = normalize_url(url)
     extension = get_url_extension(normalized)
     score = 0
 
-    for priority_path in PRIORITY_PATHS:
-        if priority_path.rstrip("/") in normalized:
+    for path in PRIORITY_PATHS:
+        if path.rstrip("/") in normalized:
             score += 30
 
     if extension in DOCUMENT_EXTENSIONS:
         score += 14
     elif extension in IMAGE_EXTENSIONS:
         score += 8
-    elif extension in HTML_LIKE_EXTENSIONS:
+    elif extension in HTML_EXTENSIONS:
         score += 10
 
     depth_penalty = normalized.count("/")
-    return (score, -depth_penalty, normalized)
+    return score, -depth_penalty, normalized
 
 
 def sort_urls(urls: list[str]) -> list[str]:
-    return sorted(unique_urls(urls), key=score_discovered_url, reverse=True)
+    return sorted(unique_urls(urls), key=score_url, reverse=True)
 
 
 def discover_faculty_urls(
@@ -109,11 +86,11 @@ def discover_faculty_urls(
     max_depth: int,
     max_links_per_page: int,
 ) -> list[str]:
-    base_urls = faculty["base_urls"]
-    seed_urls = sort_urls(build_seed_urls(base_urls))
-    results = list(seed_urls)
-    seen = {normalize_url(url) for url in seed_urls}
-    queue = deque((url, 0) for url in seed_urls if is_html_like_url(url))
+    base_urls = faculty.get("base_urls", [])
+    seeds = sort_urls(build_seed_urls(base_urls))
+    queue = deque((url, 0) for url in seeds if is_html_like_url(url))
+    seen = {normalize_url(url) for url in seeds}
+    results = list(seeds)
 
     while queue and len(results) < max_urls:
         current_url, depth = queue.popleft()
@@ -123,18 +100,15 @@ def discover_faculty_urls(
         discovered_links = sort_urls(
             extract_candidate_links(current_url, base_urls, max_links=max_links_per_page)
         )
-
         for discovered_url in discovered_links:
             normalized = normalize_url(discovered_url)
-            if normalized in seen:
+            if not normalized or normalized in seen:
                 continue
 
             seen.add(normalized)
             results.append(discovered_url)
-
             if is_html_like_url(discovered_url):
                 queue.append((discovered_url, depth + 1))
-
             if len(results) >= max_urls:
                 break
 
@@ -157,9 +131,10 @@ def build_index(
     max_depth: int = 2,
     max_links_per_page: int = 35,
     fetch_workers: int = 10,
+    skip_vector_index: bool = False,
 ) -> dict:
-    seen_urls = set()
-    all_pages = []
+    seen_urls: set[str] = set()
+    pages: list[dict] = []
 
     for faculty in FACULTIES:
         candidate_urls = discover_faculty_urls(
@@ -168,20 +143,22 @@ def build_index(
             max_depth=max_depth,
             max_links_per_page=max_links_per_page,
         )
-        faculty_urls = []
-
+        faculty_urls: list[str] = []
         for url in candidate_urls:
             normalized = normalize_url(url)
-            if normalized in seen_urls:
-                continue
+            if normalized and normalized not in seen_urls:
+                seen_urls.add(normalized)
+                faculty_urls.append(url)
 
-            seen_urls.add(normalized)
-            faculty_urls.append(url)
+        pages.extend(fetch_pages(faculty_urls, fetch_workers))
 
-        all_pages.extend(fetch_pages(faculty_urls, fetch_workers))
-
-    index_document = build_index_document(all_pages, FACULTIES)
+    index_document = build_index_document(pages, FACULTIES)
     save_index(index_document)
+
+    if not skip_vector_index:
+        vector_status = rebuild_vector_index(index_document, recreate=True)
+        index_document["vector_index"] = vector_status
+
     return index_document
 
 
@@ -191,6 +168,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-depth", type=int, default=2)
     parser.add_argument("--max-links-per-page", type=int, default=35)
     parser.add_argument("--fetch-workers", type=int, default=10)
+    parser.add_argument(
+        "--skip-vector-index",
+        action="store_true",
+        help="Only rebuild backend/data/page_index.json. Normal thesis runs should leave this off.",
+    )
     return parser.parse_args()
 
 
@@ -201,8 +183,17 @@ if __name__ == "__main__":
         max_depth=max(0, args.max_depth),
         max_links_per_page=max(10, args.max_links_per_page),
         fetch_workers=max(1, args.fetch_workers),
+        skip_vector_index=args.skip_vector_index,
     )
     print(
         f"Indexed {document['page_count']} pages into {document['chunk_count']} chunks "
         f"(schema v{document['schema_version']})"
     )
+    if document.get("vector_index"):
+        vector_index = document["vector_index"]
+        vector_location = vector_index.get("qdrant_path") or vector_index.get("qdrant_url")
+        print(
+            f"Vector index: {vector_index['indexed_count']} chunks in Qdrant collection "
+            f"{vector_index['collection']} at {vector_location} using {vector_index['embedding_model']} "
+            f"({vector_index['vector_size']} dimensions)"
+        )

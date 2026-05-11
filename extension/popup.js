@@ -1,4 +1,7 @@
 const BACKEND_URL = "http://127.0.0.1:5000";
+const RECENT_QUESTIONS_KEY = "recentQuestions";
+const MAX_HISTORY_MESSAGES = 10;
+
 const FALLBACK_FACULTIES = [
   { id: "uvt", name: "UVT (general)" },
   { id: "arte", name: "Facultatea de Arte si Design" },
@@ -15,83 +18,65 @@ const FALLBACK_FACULTIES = [
   { id: "fsgc", name: "Facultatea de Stiinte ale Guvernarii si Comunicarii" }
 ];
 
-const MAX_HISTORY_MESSAGES = 10;
-const RECENT_QUESTIONS_KEY = "recentQuestions";
+const refs = {
+  log: document.getElementById("log"),
+  input: document.getElementById("q"),
+  send: document.getElementById("send"),
+  faculty: document.getElementById("faculty"),
+  facultyBadge: document.getElementById("facultyBadge"),
+  confidenceBadge: document.getElementById("confidenceBadge"),
+  verificationBadge: document.getElementById("verificationBadge"),
+  metaLine: document.getElementById("metaLine"),
+  emptyState: document.getElementById("emptyState"),
+  emptyText: document.getElementById("emptyText"),
+  statusDot: document.getElementById("statusDot"),
+  themeToggle: document.getElementById("themeToggle"),
+  recentQuestions: document.getElementById("recentQuestions"),
+  statusPanel: document.getElementById("statusPanel"),
+  statusTitle: document.getElementById("statusTitle"),
+  statusText: document.getElementById("statusText"),
+  chips: Array.from(document.querySelectorAll(".chip"))
+};
 
-const log = document.getElementById("log");
-const input = document.getElementById("q");
-const btn = document.getElementById("send");
-const facultySelect = document.getElementById("faculty");
-const facultyBadge = document.getElementById("facultyBadge");
-const confidenceBadge = document.getElementById("confidenceBadge");
-const verificationBadge = document.getElementById("verificationBadge");
-const metaLine = document.getElementById("metaLine");
-const emptyState = document.getElementById("emptyState");
-const emptyText = document.getElementById("emptyText");
-const statusDot = document.getElementById("statusDot");
-const themeToggle = document.getElementById("themeToggle");
-const recentQuestionsEl = document.getElementById("recentQuestions");
-const quickActionChips = Array.from(document.querySelectorAll(".chip"));
-const statusPanel = document.getElementById("statusPanel");
-const statusTitle = document.getElementById("statusTitle");
-const statusText = document.getElementById("statusText");
+const state = {
+  sending: false,
+  history: []
+};
 
-let isSending = false;
-let conversationHistory = [];
-
-function esc(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#039;");
+function storageGet(keys) {
+  return chrome.storage.local.get(keys);
 }
 
-function toggleEmptyState() {
-  const hasMessages = log.querySelectorAll(".msg").length > 0;
-  if (emptyState) {
-    emptyState.style.display = hasMessages ? "none" : "flex";
-  }
+function storageSet(value) {
+  return chrome.storage.local.set(value);
 }
 
-function scrollToBottom() {
-  log.scrollTop = log.scrollHeight;
-}
-
-function setStatus(online) {
-  statusDot.classList.toggle("online", online);
-}
-
-function setSystemState(kind, title, text) {
-  statusPanel.className = `status-panel status-${kind}`;
-  statusTitle.textContent = title;
-  statusText.textContent = text;
-}
-
-function resetMeta() {
-  confidenceBadge.textContent = "Confidence --";
-  confidenceBadge.className = "meta-badge muted";
-  verificationBadge.textContent = "Index local";
-  verificationBadge.className = "meta-badge muted";
-  metaLine.textContent = "Raspunsurile vor prefera paginile oficiale specifice, nu homepage-uri generale.";
-}
-
-function getHistoryStorageKey(facultyId) {
-  return `chatHistory:${facultyId || "uvt"}`;
+function normalizeSources(sources = []) {
+  const seen = new Set();
+  return sources
+    .filter((source) => source && typeof source.url === "string" && source.url.trim())
+    .map((source) => ({
+      title: source.title?.trim() || "Sursa oficiala",
+      url: source.url.trim(),
+      faculty_id: source.faculty_id || "uvt",
+      page_type: source.page_type || "general",
+      verified: Boolean(source.verified)
+    }))
+    .filter((source) => {
+      if (seen.has(source.url)) {
+        return false;
+      }
+      seen.add(source.url);
+      return true;
+    });
 }
 
 function normalizeHistoryEntry(entry) {
-  if (!entry || (entry.role !== "user" && entry.role !== "assistant")) {
+  if (!entry || !["user", "assistant"].includes(entry.role)) {
     return null;
   }
 
-  const text = typeof entry.text === "string"
-    ? entry.text.trim()
-    : typeof entry.content === "string"
-      ? entry.content.trim()
-      : "";
-
+  const text = (entry.text || entry.content || "").trim();
   if (!text) {
     return null;
   }
@@ -103,168 +88,167 @@ function normalizeHistoryEntry(entry) {
   };
 }
 
-function normalizeConversationHistory(entries = []) {
-  if (!Array.isArray(entries)) {
-    return [];
-  }
-
-  return entries
-    .map(normalizeHistoryEntry)
-    .filter(Boolean)
-    .slice(-MAX_HISTORY_MESSAGES);
+function getHistoryStorageKey(facultyId) {
+  return `chatHistory:${facultyId || "uvt"}`;
 }
 
 function buildHistoryPayload() {
-  return conversationHistory.map((entry) => ({
-    role: entry.role,
-    content: entry.text
-  }));
+  return state.history.map((entry) => ({ role: entry.role, content: entry.text }));
 }
 
 function appendHistory(role, text, sources = []) {
-  const normalized = normalizeHistoryEntry({ role, text, sources });
-  if (!normalized) {
+  const entry = normalizeHistoryEntry({ role, text, sources });
+  if (!entry) {
     return;
   }
-
-  conversationHistory = [...conversationHistory, normalized].slice(-MAX_HISTORY_MESSAGES);
-}
-
-function renderConversationHistory() {
-  log.innerHTML = "";
-  log.appendChild(emptyState);
-
-  conversationHistory.forEach((entry) => {
-    if (entry.role === "user") {
-      addUserMessage(entry.text);
-      return;
-    }
-
-    addBotMessage(entry.text, entry.sources);
-  });
-
-  toggleEmptyState();
+  state.history = [...state.history, entry].slice(-MAX_HISTORY_MESSAGES);
 }
 
 async function loadConversationHistory(facultyId) {
-  const historyKey = getHistoryStorageKey(facultyId);
-  const stored = await chrome.storage.local.get([historyKey]);
-  conversationHistory = normalizeConversationHistory(stored[historyKey] || []);
-  renderConversationHistory();
+  const key = getHistoryStorageKey(facultyId);
+  const stored = await storageGet([key]);
+  const items = Array.isArray(stored[key]) ? stored[key] : [];
+  state.history = items.map(normalizeHistoryEntry).filter(Boolean).slice(-MAX_HISTORY_MESSAGES);
+  renderConversation();
 }
 
 async function saveConversationHistory(facultyId) {
-  const historyKey = getHistoryStorageKey(facultyId);
-  await chrome.storage.local.set({
-    [historyKey]: conversationHistory
+  await storageSet({ [getHistoryStorageKey(facultyId)]: state.history });
+}
+
+function setBackendOnline(online) {
+  refs.statusDot.classList.toggle("online", online);
+}
+
+function setStatus(kind, title, text) {
+  refs.statusPanel.className = `status-panel status-${kind}`;
+  refs.statusTitle.textContent = title;
+  refs.statusText.textContent = text;
+}
+
+function setBusy(busy) {
+  state.sending = busy;
+  refs.send.disabled = busy;
+  refs.input.disabled = busy;
+  refs.faculty.disabled = busy;
+  refs.chips.forEach((chip) => {
+    chip.disabled = busy;
   });
 }
 
-function setSendingState(sending) {
-  isSending = sending;
-  btn.disabled = sending;
-  input.disabled = sending;
-  facultySelect.disabled = sending;
-
-  quickActionChips.forEach((chip) => {
-    chip.disabled = sending;
-  });
-}
-
-async function loadTheme() {
-  const stored = await chrome.storage.local.get(["theme"]);
-  applyTheme(stored.theme || "light");
-}
-
-function applyTheme(theme) {
-  const isDark = theme === "dark";
-  document.body.classList.toggle("dark", isDark);
-  themeToggle.textContent = isDark ? "L" : "D";
-  themeToggle.title = isDark ? "Comuta pe tema deschisa" : "Comuta pe tema inchisa";
-  themeToggle.setAttribute("aria-label", themeToggle.title);
-}
-
-async function toggleTheme() {
-  const nextTheme = document.body.classList.contains("dark") ? "light" : "dark";
-  applyTheme(nextTheme);
-  await chrome.storage.local.set({ theme: nextTheme });
+function resetMeta() {
+  refs.confidenceBadge.textContent = "Confidence --";
+  refs.confidenceBadge.className = "meta-badge muted";
+  refs.verificationBadge.textContent = "Index local";
+  refs.verificationBadge.className = "meta-badge muted";
+  refs.metaLine.textContent = "Paginile oficiale specifice au prioritate fata de paginile generale.";
 }
 
 function updateFacultyBadge() {
-  const text = facultySelect.options[facultySelect.selectedIndex]?.text || "UVT";
-  facultyBadge.textContent = text.length > 22 ? `${text.slice(0, 22)}...` : text;
+  const label = refs.faculty.options[refs.faculty.selectedIndex]?.text || "UVT";
+  refs.facultyBadge.textContent = label.length > 26 ? `${label.slice(0, 26)}...` : label;
 }
 
-function createMessage(type, label, html) {
-  const wrap = document.createElement("div");
-  wrap.className = `msg ${type}`;
+function clearLog() {
+  refs.log.innerHTML = "";
+  refs.log.appendChild(refs.emptyState);
+}
 
-  const name = document.createElement("div");
-  name.className = "msg-label";
-  name.textContent = label;
+function toggleEmptyState() {
+  const hasMessages = refs.log.querySelectorAll(".msg").length > 0;
+  refs.emptyState.hidden = hasMessages;
+}
+
+function scrollToBottom() {
+  refs.log.scrollTop = refs.log.scrollHeight;
+}
+
+function createMessage(role, label, text) {
+  const item = document.createElement("article");
+  item.className = `msg ${role}`;
+
+  const labelEl = document.createElement("div");
+  labelEl.className = "msg-label";
+  labelEl.textContent = label;
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.innerHTML = html;
+  bubble.textContent = text;
 
-  wrap.appendChild(name);
-  wrap.appendChild(bubble);
-  return wrap;
+  item.append(labelEl, bubble);
+  return item;
 }
 
-function normalizeSources(sources = []) {
-  const seen = new Set();
+function addUserMessage(text) {
+  refs.log.appendChild(createMessage("user", "Tu", text));
+  toggleEmptyState();
+  scrollToBottom();
+}
 
-  return sources
-    .filter((source) => source && typeof source.url === "string" && source.url.trim())
-    .map((source) => ({
-      title: typeof source.title === "string" && source.title.trim()
-        ? source.title.trim()
-        : "Sursa oficiala",
-      url: source.url.trim(),
-      faculty_id: typeof source.faculty_id === "string" ? source.faculty_id : "uvt",
-      page_type: typeof source.page_type === "string" ? source.page_type : "general",
-      verified: Boolean(source.verified)
-    }))
-    .filter((source) => {
-      if (seen.has(source.url)) {
-        return false;
-      }
+function addBotMessage(text, sources = [], feedbackPayload = null) {
+  refs.log.appendChild(createMessage("bot", "UVT Asist", text));
 
-      seen.add(source.url);
-      return true;
-    });
+  const sourceBlock = createSourcesBlock(sources);
+  if (sourceBlock) {
+    refs.log.appendChild(sourceBlock);
+  }
+
+  const feedback = createFeedbackActions(feedbackPayload);
+  if (feedback) {
+    refs.log.appendChild(feedback);
+  }
+
+  toggleEmptyState();
+  scrollToBottom();
+}
+
+function addLoadingMessage() {
+  const item = document.createElement("article");
+  item.id = "loadingMessage";
+  item.className = "msg bot";
+
+  const label = document.createElement("div");
+  label.className = "msg-label";
+  label.textContent = "UVT Asist";
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.appendChild(createLoadingDots());
+
+  item.append(label, bubble);
+  refs.log.appendChild(item);
+  toggleEmptyState();
+  scrollToBottom();
+}
+
+function createLoadingDots() {
+  const loading = document.createElement("div");
+  loading.className = "loading";
+  for (let index = 0; index < 3; index += 1) {
+    loading.appendChild(document.createElement("span"));
+  }
+  return loading;
+}
+
+function removeLoadingMessage() {
+  document.getElementById("loadingMessage")?.remove();
 }
 
 function formatSourceUrl(url) {
   try {
     const parsed = new URL(url);
-    const path = parsed.pathname.replace(/\/$/, "") || "/";
-    return `${parsed.hostname}${path}`;
-  } catch (error) {
+    return `${parsed.hostname}${parsed.pathname.replace(/\/$/, "") || "/"}`;
+  } catch {
     return url;
   }
 }
 
-function labelPageType(pageType) {
-  const labels = {
-    orar: "Orar",
-    burse: "Burse",
-    contact: "Contact",
-    admitere: "Admitere",
-    regulamente: "Regulamente",
-    studenti: "Studenti",
-    general: "General"
-  };
-  return labels[pageType] || "General";
-}
-
-function createSources(sources) {
-  if (!sources || !sources.length) {
+function createSourcesBlock(sources) {
+  if (!sources.length) {
     return null;
   }
 
-  const block = document.createElement("div");
+  const block = document.createElement("section");
   block.className = "sources";
 
   const title = document.createElement("div");
@@ -273,38 +257,12 @@ function createSources(sources) {
   block.appendChild(title);
 
   sources.forEach((source) => {
-    const card = document.createElement("div");
+    const card = document.createElement("article");
     card.className = "source-card";
-
-    const header = document.createElement("div");
-    header.className = "source-header";
 
     const label = document.createElement("div");
     label.className = "source-label";
-    label.textContent = source.title || "Sursa oficiala";
-
-    const pills = document.createElement("div");
-    pills.className = "source-pills";
-
-    const pageTypePill = document.createElement("span");
-    pageTypePill.className = "source-pill";
-    pageTypePill.textContent = labelPageType(source.page_type);
-    pills.appendChild(pageTypePill);
-
-    const facultyPill = document.createElement("span");
-    facultyPill.className = "source-pill";
-    facultyPill.textContent = (source.faculty_id || "uvt").toUpperCase();
-    pills.appendChild(facultyPill);
-
-    if (source.verified) {
-      const verifiedPill = document.createElement("span");
-      verifiedPill.className = "source-pill verified";
-      verifiedPill.textContent = "Live";
-      pills.appendChild(verifiedPill);
-    }
-
-    header.appendChild(label);
-    header.appendChild(pills);
+    label.textContent = source.title;
 
     const link = document.createElement("a");
     link.className = "source-link";
@@ -314,8 +272,7 @@ function createSources(sources) {
     link.textContent = formatSourceUrl(source.url);
     link.title = source.url;
 
-    card.appendChild(header);
-    card.appendChild(link);
+    card.append(label, link);
     block.appendChild(card);
   });
 
@@ -325,12 +282,9 @@ function createSources(sources) {
 async function postFeedback(payload) {
   const response = await fetch(`${BACKEND_URL}/feedback`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
@@ -344,112 +298,54 @@ function createFeedbackActions(payload) {
   const block = document.createElement("div");
   block.className = "feedback-actions";
 
-  const label = document.createElement("span");
-  label.className = "feedback-label";
-  label.textContent = "Feedback";
+  const useful = document.createElement("button");
+  useful.type = "button";
+  useful.className = "feedback-btn";
+  useful.textContent = "Util";
 
-  const positiveBtn = document.createElement("button");
-  positiveBtn.type = "button";
-  positiveBtn.className = "feedback-btn";
-  positiveBtn.textContent = "Util";
+  const inaccurate = document.createElement("button");
+  inaccurate.type = "button";
+  inaccurate.className = "feedback-btn";
+  inaccurate.textContent = "Inexact";
 
-  const negativeBtn = document.createElement("button");
-  negativeBtn.type = "button";
-  negativeBtn.className = "feedback-btn";
-  negativeBtn.textContent = "Inexact";
-
-  const state = document.createElement("span");
-  state.className = "feedback-state";
+  const stateText = document.createElement("span");
+  stateText.className = "feedback-state";
 
   async function sendFeedback(value) {
-    positiveBtn.disabled = true;
-    negativeBtn.disabled = true;
-    state.textContent = "...";
-
+    useful.disabled = true;
+    inaccurate.disabled = true;
+    stateText.textContent = "Se salveaza...";
     try {
-      await postFeedback({
-        ...payload,
-        feedback: value,
-        created_at: new Date().toISOString()
-      });
-      state.textContent = "Salvat";
-      setStatus(true);
-    } catch (error) {
-      state.textContent = "Netrimis";
-      positiveBtn.disabled = false;
-      negativeBtn.disabled = false;
-      setStatus(false);
+      await postFeedback({ ...payload, feedback: value, created_at: new Date().toISOString() });
+      stateText.textContent = "Salvat";
+      setBackendOnline(true);
+    } catch {
+      stateText.textContent = "Netrimis";
+      useful.disabled = false;
+      inaccurate.disabled = false;
+      setBackendOnline(false);
     }
   }
 
-  positiveBtn.addEventListener("click", () => {
-    sendFeedback("positive");
-  });
-
-  negativeBtn.addEventListener("click", () => {
-    sendFeedback("negative");
-  });
-
-  block.appendChild(label);
-  block.appendChild(positiveBtn);
-  block.appendChild(negativeBtn);
-  block.appendChild(state);
+  useful.addEventListener("click", () => sendFeedback("positive"));
+  inaccurate.addEventListener("click", () => sendFeedback("negative"));
+  block.append(useful, inaccurate, stateText);
   return block;
 }
 
-function addUserMessage(text) {
-  const msg = createMessage("user", "Tu", esc(text));
-  log.appendChild(msg);
+function renderConversation() {
+  clearLog();
+  state.history.forEach((entry) => {
+    if (entry.role === "user") {
+      addUserMessage(entry.text);
+    } else {
+      addBotMessage(entry.text, entry.sources);
+    }
+  });
   toggleEmptyState();
-  scrollToBottom();
 }
 
-function addBotMessage(text, sources = [], feedbackPayload = null) {
-  const msg = createMessage("bot", "UVT Asist", esc(text));
-  log.appendChild(msg);
-
-  const sourceBlock = createSources(sources);
-  if (sourceBlock) {
-    log.appendChild(sourceBlock);
-  }
-
-  const feedbackBlock = createFeedbackActions(feedbackPayload);
-  if (feedbackBlock) {
-    log.appendChild(feedbackBlock);
-  }
-
-  toggleEmptyState();
-  scrollToBottom();
-}
-
-function addLoadingMessage() {
-  const msg = createMessage(
-    "bot",
-    "UVT Asist",
-    "<div class=\"loading\"><span></span><span></span><span></span></div>"
-  );
-  msg.id = "loadingMessage";
-  log.appendChild(msg);
-  toggleEmptyState();
-  scrollToBottom();
-}
-
-function removeLoadingMessage() {
-  const node = document.getElementById("loadingMessage");
-  if (node) {
-    node.remove();
-  }
-}
-
-function formatConfidence(confidence, confidenceScore) {
-  const label = typeof confidence === "string" && confidence.trim()
-    ? confidence.trim().toLowerCase()
-    : "unknown";
-  const title = label.charAt(0).toUpperCase() + label.slice(1);
-  return `Confidence ${title} ${typeof confidenceScore === "number" ? `(${confidenceScore})` : ""}`.trim();
-}
-
-function confidenceBadgeTone(confidence) {
+function confidenceTone(confidence) {
   if (confidence === "high") {
     return "success";
   }
@@ -459,86 +355,92 @@ function confidenceBadgeTone(confidence) {
   return "warning";
 }
 
-function formatIntent(intent) {
-  const labels = {
-    orar: "orar",
-    burse: "burse",
-    contact: "contact",
-    admitere: "admitere",
-    regulamente: "regulamente",
-    studenti: "studenti",
-    general: "general"
-  };
-  return labels[intent] || "general";
-}
-
 function updateResultMeta(data) {
   const confidence = data.confidence || "low";
-  const confidenceScore = typeof data.confidence_score === "number" ? data.confidence_score : 0;
-  confidenceBadge.textContent = formatConfidence(confidence, confidenceScore);
-  confidenceBadge.className = `meta-badge ${confidenceBadgeTone(confidence)}`;
+  const score = Number.isFinite(data.confidence_score) ? data.confidence_score : 0;
 
-  if (data.live_verified) {
-    verificationBadge.textContent = "Verificare live";
-    verificationBadge.className = "meta-badge success";
-  } else {
-    verificationBadge.textContent = "Index local";
-    verificationBadge.className = "meta-badge muted";
+  refs.confidenceBadge.textContent = `Confidence ${confidence} (${score})`;
+  refs.confidenceBadge.className = `meta-badge ${confidenceTone(confidence)}`;
+
+  refs.verificationBadge.textContent = data.live_verified ? "Verificat live" : "Index local";
+  refs.verificationBadge.className = `meta-badge ${data.live_verified ? "success" : "muted"}`;
+
+  const profile = data.query_profile || {};
+  const metaParts = [
+    `Facultate: ${data.matched_faculty || "UVT"}`,
+    `Intent: ${profile.intent || "general"}`
+  ];
+  if (profile.policy_question) {
+    metaParts.push("Rutare: regulamente/metodologii");
   }
-
-  const metaParts = [];
-  const queryProfile = data.query_profile || {};
-  metaParts.push(`Facultate: ${data.matched_faculty || "UVT"}`);
-  metaParts.push(`Intent: ${formatIntent(queryProfile.intent)}`);
-
-  if (queryProfile.policy_question) {
-    metaParts.push("Rutare: reguli/metodologii");
+  if (data.retrieval_backend) {
+    metaParts.push(`Retrieval: ${data.retrieval_backend}`);
   }
-
   if (data.confidence_reason) {
     metaParts.push(data.confidence_reason);
   }
-
-  metaLine.textContent = metaParts.join(" • ");
+  refs.metaLine.textContent = metaParts.join(" | ");
 }
 
 async function saveRecentQuestion(question) {
-  const normalizedQuestion = String(question || "").trim();
-  if (!normalizedQuestion) {
+  const value = question.trim();
+  if (!value) {
     return;
   }
 
-  const stored = await chrome.storage.local.get([RECENT_QUESTIONS_KEY]);
+  const stored = await storageGet([RECENT_QUESTIONS_KEY]);
   const recent = Array.isArray(stored[RECENT_QUESTIONS_KEY]) ? stored[RECENT_QUESTIONS_KEY] : [];
-  const next = [normalizedQuestion, ...recent.filter((item) => item !== normalizedQuestion)].slice(0, 5);
-  await chrome.storage.local.set({ [RECENT_QUESTIONS_KEY]: next });
+  const next = [value, ...recent.filter((item) => item !== value)].slice(0, 5);
+  await storageSet({ [RECENT_QUESTIONS_KEY]: next });
   renderRecentQuestions(next);
 }
 
 async function loadRecentQuestions() {
-  const stored = await chrome.storage.local.get([RECENT_QUESTIONS_KEY]);
+  const stored = await storageGet([RECENT_QUESTIONS_KEY]);
   return Array.isArray(stored[RECENT_QUESTIONS_KEY]) ? stored[RECENT_QUESTIONS_KEY] : [];
 }
 
 function renderRecentQuestions(questions = []) {
-  if (!recentQuestionsEl) {
-    return;
-  }
-
-  recentQuestionsEl.innerHTML = "";
-
+  refs.recentQuestions.innerHTML = "";
   questions.forEach((question) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "recent-item";
     item.textContent = question;
     item.title = question;
-    item.addEventListener("click", () => {
-      input.value = question;
-      sendMessage(question);
-    });
-    recentQuestionsEl.appendChild(item);
+    item.addEventListener("click", () => sendMessage(question));
+    refs.recentQuestions.appendChild(item);
   });
+}
+
+function populateFaculties(faculties, selectedFacultyId) {
+  refs.faculty.innerHTML = "";
+  faculties.forEach((faculty) => {
+    const option = document.createElement("option");
+    option.value = faculty.id;
+    option.textContent = faculty.name;
+    refs.faculty.appendChild(option);
+  });
+
+  const ids = new Set(faculties.map((faculty) => faculty.id));
+  refs.faculty.value = ids.has(selectedFacultyId) ? selectedFacultyId : "uvt";
+  updateFacultyBadge();
+}
+
+async function loadFaculties() {
+  const stored = await storageGet(["facultyId"]);
+  const saved = stored.facultyId || "uvt";
+  try {
+    const response = await fetch(`${BACKEND_URL}/faculties`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    populateFaculties(data.faculties || FALLBACK_FACULTIES, saved);
+    setBackendOnline(true);
+  } catch {
+    populateFaculties(FALLBACK_FACULTIES, saved);
+  }
 }
 
 async function checkBackend() {
@@ -547,104 +449,74 @@ async function checkBackend() {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-
     const data = await response.json();
     const chunkCount = data.index?.chunk_count || 0;
+    const vectorCount = data.vector_index?.points_count || 0;
     const builtAt = data.index?.built_at || "necunoscut";
-    setStatus(true);
-    setSystemState(
+    const generationModel = data.ollama?.generation_model || "Ollama";
+    const embeddingModel = data.ollama?.embedding_model || "embedding local";
+    setBackendOnline(true);
+    setStatus(
       "idle",
       "Backend disponibil",
-      `Index local activ (${chunkCount} fragmente). Ultima build: ${builtAt}.`
+      `Qdrant: ${vectorCount} vectori. JSON: ${chunkCount} fragmente. Model: ${generationModel}. Embedding: ${embeddingModel}. Build: ${builtAt}.`
     );
-    emptyText.textContent = "Exemple: unde gasesc orarul, program secretariat, admitere, burse, reguli pentru doua burse";
+    refs.emptyText.textContent = "Exemple: orar, secretariat, admitere, burse, reguli despre cumularea burselor.";
     return true;
-  } catch (error) {
-    setStatus(false);
-    setSystemState(
-      "error",
-      "Backend indisponibil",
-      "Porneste backend-ul Flask si verifica GEMINI_API_KEY daca vrei raspuns complet."
-    );
-    emptyText.textContent = "Backend-ul nu raspunde momentan. Porneste serverul Flask pentru a folosi extensia.";
+  } catch {
+    setBackendOnline(false);
+    setStatus("error", "Backend indisponibil", "Porneste backend-ul Flask pe 127.0.0.1:5000 si reincarca popup-ul.");
+    refs.emptyText.textContent = "Backend-ul nu raspunde. Extensia ramane deschisa, dar nu poate genera raspunsuri.";
     return false;
   }
 }
 
-function populateFaculties(faculties, selectedFacultyId) {
-  facultySelect.innerHTML = "";
-
-  faculties.forEach((faculty) => {
-    const opt = document.createElement("option");
-    opt.value = faculty.id;
-    opt.textContent = faculty.name;
-    facultySelect.appendChild(opt);
-  });
-
-  const availableIds = new Set(faculties.map((faculty) => faculty.id));
-  facultySelect.value = availableIds.has(selectedFacultyId) ? selectedFacultyId : "uvt";
-  updateFacultyBadge();
+async function loadTheme() {
+  const stored = await storageGet(["theme"]);
+  applyTheme(stored.theme || "light");
 }
 
-async function loadFaculties() {
-  const stored = await chrome.storage.local.get(["facultyId"]);
-  const saved = stored.facultyId || "uvt";
-
-  try {
-    const response = await fetch(`${BACKEND_URL}/faculties`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    populateFaculties(data.faculties || FALLBACK_FACULTIES, saved);
-    setStatus(true);
-  } catch (error) {
-    populateFaculties(FALLBACK_FACULTIES, saved);
-  }
+function applyTheme(theme) {
+  const dark = theme === "dark";
+  document.body.classList.toggle("dark", dark);
+  refs.themeToggle.textContent = dark ? "Light" : "Dark";
+  refs.themeToggle.title = dark ? "Comuta pe tema deschisa" : "Comuta pe tema inchisa";
 }
 
-facultySelect.addEventListener("change", async () => {
-  await chrome.storage.local.set({ facultyId: facultySelect.value });
-  updateFacultyBadge();
-  resetMeta();
-  await loadConversationHistory(facultySelect.value);
-});
+async function toggleTheme() {
+  const next = document.body.classList.contains("dark") ? "light" : "dark";
+  applyTheme(next);
+  await storageSet({ theme: next });
+}
 
 async function sendMessage(prefilledQuestion = null) {
-  if (isSending) {
+  if (state.sending) {
     return;
   }
 
-  const question = (prefilledQuestion ?? input.value).trim();
+  const question = (prefilledQuestion ?? refs.input.value).trim();
   if (!question) {
+    refs.input.focus();
     return;
   }
 
   await saveRecentQuestion(question);
-  setSendingState(true);
-  setSystemState("loading", "Analizez intrebarea", "Rulez rutarea pe indexul local si verific doar cele mai bune surse.");
+  const stored = await storageGet(["facultyId"]);
+  const facultyId = stored.facultyId || refs.faculty.value || "uvt";
+  const history = buildHistoryPayload();
+
+  setBusy(true);
+  setStatus("loading", "Analizez intrebarea", "Caut semantic in Qdrant si verific doar sursele de top.");
   addUserMessage(question);
-  input.value = "";
+  refs.input.value = "";
   addLoadingMessage();
 
   try {
-    const stored = await chrome.storage.local.get(["facultyId"]);
-    const facultyId = stored.facultyId || facultySelect.value || "uvt";
-    const history = buildHistoryPayload();
-
     const response = await fetch(`${BACKEND_URL}/chat`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        question,
-        faculty_id: facultyId,
-        history
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, faculty_id: facultyId, history })
     });
-
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -652,24 +524,16 @@ async function sendMessage(prefilledQuestion = null) {
     const data = await response.json();
     const sources = normalizeSources(data.sources || []);
     const answer = data.answer || "Nu exista raspuns disponibil.";
-    const confidence = data.confidence || "low";
-
     removeLoadingMessage();
     updateResultMeta(data);
 
-    if (confidence === "low") {
-      setSystemState(
-        "warning",
-        "Dovezi partiale",
-        "Am gasit doar potriviri limitate. Verifica in special sursele oficiale afisate."
-      );
+    if (data.confidence === "low") {
+      setStatus("warning", "Dovezi partiale", "Raspunsul este limitat de sursele oficiale gasite.");
     } else {
-      setSystemState(
+      setStatus(
         "success",
         "Raspuns pregatit",
-        data.live_verified
-          ? "Sursele de top au fost reverificate live inainte de generarea raspunsului."
-          : "Raspunsul a fost generat din indexul local oficial."
+        data.live_verified ? "Sursele principale au fost reverificate live." : "Raspuns generat local cu Ollama din surse oficiale."
       );
     }
 
@@ -679,49 +543,47 @@ async function sendMessage(prefilledQuestion = null) {
       answer,
       faculty_id: facultyId,
       matched_faculty: data.matched_faculty || "UVT",
-      confidence: confidence,
+      confidence: data.confidence || "low",
       confidence_score: data.confidence_score || 0,
       live_verified: Boolean(data.live_verified),
+      retrieval_backend: data.retrieval_backend || "unknown",
       sources
     });
 
     appendHistory("user", question);
     appendHistory("assistant", answer, sources);
     await saveConversationHistory(facultyId);
-    setStatus(true);
-  } catch (error) {
+    setBackendOnline(true);
+  } catch {
     removeLoadingMessage();
     resetMeta();
-    setSystemState(
-      "error",
-      "Nu m-am putut conecta la backend",
-      "Porneste backend-ul Flask si reincarca extensia daca problema persista."
-    );
-    addBotMessage("Nu m-am putut conecta la backend-ul Flask.");
-    setStatus(false);
+    setBackendOnline(false);
+    setStatus("error", "Nu m-am putut conecta", "Verifica daca backend-ul Flask ruleaza pe 127.0.0.1:5000.");
+    addBotMessage("Nu m-am putut conecta la backend-ul Flask. Porneste serverul si incearca din nou.");
   } finally {
-    setSendingState(false);
+    setBusy(false);
   }
 }
 
-btn.addEventListener("click", () => {
-  sendMessage();
+refs.faculty.addEventListener("change", async () => {
+  await storageSet({ facultyId: refs.faculty.value });
+  updateFacultyBadge();
+  resetMeta();
+  await loadConversationHistory(refs.faculty.value);
 });
 
-themeToggle.addEventListener("click", toggleTheme);
+refs.send.addEventListener("click", () => sendMessage());
+refs.themeToggle.addEventListener("click", toggleTheme);
 
-input.addEventListener("keydown", (event) => {
+refs.input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     sendMessage();
   }
 });
 
-quickActionChips.forEach((chip) => {
-  chip.addEventListener("click", () => {
-    input.value = chip.dataset.q;
-    sendMessage();
-  });
+refs.chips.forEach((chip) => {
+  chip.addEventListener("click", () => sendMessage(chip.dataset.q || ""));
 });
 
 (async function init() {
@@ -729,6 +591,6 @@ quickActionChips.forEach((chip) => {
   resetMeta();
   await checkBackend();
   await loadFaculties();
-  await loadConversationHistory(facultySelect.value);
+  await loadConversationHistory(refs.faculty.value);
   renderRecentQuestions(await loadRecentQuestions());
-}());
+})();
