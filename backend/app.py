@@ -15,7 +15,7 @@ from flask_cors import CORS
 
 from faculties import FACULTIES
 from ollama_client import ask_ollama, get_ollama_status
-from page_index import build_chunk_entries_from_pages, get_index_status, load_index
+from page_index import build_chunk_entries_from_pages, get_index_status, load_index, normalize_url
 from prompts import SYSTEM_PROMPT, build_user_prompt
 from retriever import (
     compute_confidence,
@@ -74,6 +74,8 @@ VAGUE_QUESTIONS = {
     "mai multe",
 }
 
+FACULTY_SCOPED_INTENTS = {"orar", "contact"}
+
 BAD_GENERATION_MARKERS = (
     "okay,",
     "let me",
@@ -95,14 +97,32 @@ class ChatRequest:
 
 @app.get("/health")
 def health():
+    ollama_status = get_ollama_status()
+    index_status = get_index_status()
+    vector_status = get_vector_index_status()
+    status_reasons: list[str] = []
+
+    if not ollama_status.get("available"):
+        status_reasons.append("Ollama is unavailable.")
+    if not index_status.get("exists") or not index_status.get("chunk_count"):
+        status_reasons.append("JSON index is missing or empty.")
+    if not vector_status.get("available") or not vector_status.get("points_count"):
+        status_reasons.append("Qdrant vector index is unavailable or empty.")
+    elif index_status.get("chunk_count") and vector_status.get("points_count") != index_status.get("chunk_count"):
+        status_reasons.append("Qdrant point count does not match the JSON index chunk count.")
+
+    status = "ok" if not status_reasons else "degraded"
+    retrieval_mode = "qdrant-vector-rag" if not status_reasons or vector_status.get("available") else "local-json-lexical-fallback"
+
     return jsonify({
-        "status": "ok",
+        "status": status,
+        "status_reasons": status_reasons,
         "llm_provider": "ollama",
         "embedding_provider": "ollama",
-        "retrieval_mode": "qdrant-vector-rag",
-        "ollama": get_ollama_status(),
-        "index": get_index_status(),
-        "vector_index": get_vector_index_status(),
+        "retrieval_mode": retrieval_mode,
+        "ollama": ollama_status,
+        "index": index_status,
+        "vector_index": vector_status,
         "verification_cache": get_cache_status(),
         "response_cache_entries": get_response_cache_size(),
     })
@@ -266,22 +286,38 @@ def set_cached_response(cache_key: str, response_payload: dict) -> None:
 
 
 def merge_ranked_chunks(primary_chunks: list[dict], verified_chunks: list[dict]) -> list[dict]:
-    merged: dict[tuple[str, str], dict] = {}
+    verified_by_url: dict[str, dict] = {}
+    for chunk in verified_chunks:
+        normalized_url = normalize_url(chunk.get("url", ""))
+        if not normalized_url:
+            continue
+        previous = verified_by_url.get(normalized_url)
+        if previous is None or chunk.get("retrieval_score", 0) > previous.get("retrieval_score", 0):
+            verified_by_url[normalized_url] = dict(chunk)
 
-    for chunk in primary_chunks + verified_chunks:
-        url = chunk.get("url")
-        chunk_text = chunk.get("chunk_text")
-        if not url or not chunk_text:
+    merged: list[dict] = []
+    seen_urls: set[str] = set()
+    for primary_chunk in primary_chunks:
+        normalized_url = normalize_url(primary_chunk.get("url", ""))
+        if not normalized_url or normalized_url in seen_urls:
             continue
 
-        key = (url, str(chunk_text)[:180])
-        previous = merged.get(key)
-        if previous is None or chunk.get("retrieval_score", 0) > previous.get("retrieval_score", 0):
-            merged[key] = dict(chunk)
-        elif chunk.get("verified"):
-            previous["verified"] = True
+        merged_chunk = dict(primary_chunk)
+        verified_chunk = verified_by_url.get(normalized_url)
+        if verified_chunk:
+            merged_chunk["title"] = verified_chunk.get("title") or merged_chunk.get("title")
+            merged_chunk["chunk_text"] = verified_chunk.get("chunk_text") or merged_chunk.get("chunk_text")
+            merged_chunk["verified"] = True
+        merged.append(merged_chunk)
+        seen_urls.add(normalized_url)
 
-    return sorted(merged.values(), key=lambda item: item.get("retrieval_score", 0), reverse=True)
+    for verified_chunk in sorted(verified_by_url.values(), key=lambda item: item.get("retrieval_score", 0), reverse=True):
+        normalized_url = normalize_url(verified_chunk.get("url", ""))
+        if normalized_url and normalized_url not in seen_urls:
+            merged.append(verified_chunk)
+            seen_urls.add(normalized_url)
+
+    return merged
 
 
 def unique_sources_from_chunks(chunks: list[dict]) -> list[dict]:
@@ -311,21 +347,60 @@ def build_local_fallback_answer(retrieval_result: dict) -> str:
         return "Nu am gasit suficiente dovezi oficiale in indexul local pentru un raspuns sigur."
 
     best_chunk = chunks[0]
+    analysis = retrieval_result.get("analysis", {})
+    intent = analysis.get("intent", "general")
+    tokens = set(analysis.get("tokens") or [])
+    expanded_tokens = set(analysis.get("expanded_tokens") or tokens)
     title = best_chunk.get("title", "sursa oficiala")
     url = best_chunk.get("url", "")
-    snippet = " ".join(str(best_chunk.get("chunk_text", "")).split())
-    if len(snippet) > 420:
-        snippet = snippet[:420].rsplit(" ", 1)[0].strip()
+    chunk_text = " ".join(str(best_chunk.get("chunk_text", "")).split())
+    normalized_chunk = normalize_retrieval_text(chunk_text)
 
     if retrieval_result.get("confidence") == "low":
         return (
-            "Am gasit doar dovezi partiale in sursele oficiale. "
-            f"Cea mai relevanta pagina este \"{title}\"."
+            "Nu am gasit o sursa oficiala suficient de relevanta pentru aceasta intrebare in indexul local. "
+            "Sursele apropiate sunt afisate mai jos, dar nu sustin un raspuns sigur."
         )
 
-    if snippet:
-        return f"Cea mai relevanta sursa oficiala este \"{title}\" ({url}). Fragment util: {snippet}..."
-    return f"Cea mai relevanta sursa oficiala este \"{title}\" ({url})."
+    if intent == "orar":
+        return f"Pentru orar, foloseste pagina oficiala \"{title}\": {url}."
+
+    if intent == "contact":
+        return f"Pentru secretariat sau date de contact, consulta pagina oficiala \"{title}\": {url}."
+
+    if intent == "admitere":
+        return f"Pentru informatii despre admitere, cea mai potrivita sursa oficiala gasita este \"{title}\": {url}."
+
+    if intent == "studenti" and {"cazare", "camin", "camine"} & tokens:
+        return f"Pentru cazare si camine, consulta pagina oficiala \"{title}\": {url}."
+
+    if intent == "studenti" and {"calendar", "structura", "universitar", "an"} & tokens:
+        date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})\s+inceperea anului universitar", normalized_chunk)
+        if date_match:
+            return (
+                f"Conform sursei oficiale \"{title}\", inceperea anului universitar este indicata la "
+                f"{date_match.group(1)}. Sursa: {url}."
+            )
+        return f"Pentru structura anului universitar, consulta sursa oficiala \"{title}\": {url}."
+
+    scholarship_question = bool({"burse", "bursa", "burselor"} & expanded_tokens)
+    cumulation_question = bool({"2", "cumulare"} & expanded_tokens)
+    if scholarship_question and cumulation_question:
+        if "nu poate primi doua tipuri de burse simultan din aceeasi categorie" in normalized_chunk:
+            return (
+                "Metodologia indica faptul ca un student nu poate primi doua tipuri de burse simultan "
+                "din aceeasi categorie, dar poate opta pentru bursa cu valoare mai mare sau acordata "
+                f"pe perioada mai lunga. Verifica metodologia oficiala: {url}."
+            )
+        return f"Pentru cumularea burselor, verifica metodologia oficiala \"{title}\": {url}."
+
+    if scholarship_question and "limita de varsta" in normalized_chunk and "35 de ani" in normalized_chunk:
+        return (
+            "Sursa oficiala mentioneaza o limita de varsta de 35 de ani pentru bursa sociala. "
+            f"Verifica metodologia completa in \"{title}\": {url}."
+        )
+
+    return f"Cea mai relevanta sursa oficiala gasita este \"{title}\": {url}."
 
 
 def answer_needs_fallback(answer: str) -> bool:
@@ -353,11 +428,11 @@ def live_verify_retrieval(
         idf=prepared_index.get("idf", {}),
         top_k=4,
     )
-    verified_urls = {page.get("url") for page in verified_pages if page.get("url")}
+    verified_urls = {normalize_url(page.get("url", "")) for page in verified_pages if page.get("url")}
     merged_chunks = merge_ranked_chunks(retrieval_result.get("chunks", []), verified_result.get("chunks", []))
 
     for chunk in merged_chunks:
-        if chunk.get("url") in verified_urls:
+        if normalize_url(chunk.get("url", "")) in verified_urls:
             chunk["verified"] = True
 
     return merged_chunks[:6], True
@@ -371,8 +446,15 @@ def refresh_confidence(retrieval_result: dict, chunks: list[dict]) -> None:
     retrieval_result["confidence_reason"] = confidence["reason"]
 
 
-def build_response_payload(answer: str, faculty: dict, retrieval_result: dict, live_verified: bool) -> dict:
+def build_response_payload(
+    answer: str,
+    faculty: dict,
+    retrieval_result: dict,
+    live_verified: bool,
+    generation: dict | None = None,
+) -> dict:
     analysis = retrieval_result.get("analysis", {})
+    generation = generation or {"mode": "unknown"}
     return {
         "answer": answer,
         "sources": unique_sources_from_chunks(retrieval_result.get("chunks", [])),
@@ -389,7 +471,32 @@ def build_response_payload(answer: str, faculty: dict, retrieval_result: dict, l
             "corrections": analysis.get("corrections", []),
         },
         "retrieval_backend": retrieval_result.get("retrieval_backend", "unknown"),
+        "generation_mode": generation.get("mode", "unknown"),
+        "generation_error": generation.get("error", ""),
     }
+
+
+def needs_faculty_clarification(faculty: dict, retrieval_result: dict) -> bool:
+    analysis = retrieval_result.get("analysis", {})
+    return faculty["id"] == GENERAL_FACULTY_ID and analysis.get("intent") in FACULTY_SCOPED_INTENTS
+
+
+def faculty_clarification_payload(faculty: dict, retrieval_result: dict) -> dict:
+    intent = retrieval_result.get("analysis", {}).get("intent", "general")
+    label = "orarul" if intent == "orar" else "secretariatul/contactul"
+    retrieval_result = {
+        **retrieval_result,
+        "chunks": [],
+        "confidence": "low",
+        "confidence_score": 20,
+        "confidence_reason": "Intrebarea necesita alegerea unei facultati concrete.",
+        "retrieval_backend": "clarification",
+    }
+    answer = (
+        f"Pentru {label}, alege mai intai facultatea din lista sau mentioneaza numele ei in intrebare. "
+        "Fara facultate, exista mai multe pagini oficiale posibile si nu pot alege sigur una singura."
+    )
+    return build_response_payload(answer, faculty, retrieval_result, False, {"mode": "clarification"})
 
 
 def empty_question_payload() -> dict:
@@ -436,6 +543,11 @@ def chat():
         return jsonify(cached_response)
 
     retrieval_result = rank_index(effective_question, index_document, faculty["id"], top_k=6)
+    if needs_faculty_clarification(faculty, retrieval_result):
+        response_payload = faculty_clarification_payload(faculty, retrieval_result)
+        set_cached_response(cache_key, response_payload)
+        return jsonify(response_payload)
+
     live_verified = False
 
     if retrieval_result.get("chunks"):
@@ -455,14 +567,17 @@ def chat():
         question_is_vague=question_is_vague,
     )
 
+    generation = {"mode": "ollama"}
     try:
         answer = ask_ollama(SYSTEM_PROMPT, prompt)
         if answer_needs_fallback(answer):
+            generation = {"mode": "fallback_bad_generation"}
             answer = build_local_fallback_answer(retrieval_result)
-    except Exception:
+    except Exception as exc:
+        generation = {"mode": "fallback_ollama_error", "error": str(exc)}
         answer = build_local_fallback_answer(retrieval_result)
 
-    response_payload = build_response_payload(answer, faculty, retrieval_result, live_verified)
+    response_payload = build_response_payload(answer, faculty, retrieval_result, live_verified, generation)
     set_cached_response(cache_key, response_payload)
     return jsonify(response_payload)
 
@@ -481,6 +596,8 @@ def append_feedback_record(payload: dict) -> None:
         "source": payload.get("source", "popup"),
         "live_verified": bool(payload.get("live_verified")),
         "retrieval_backend": payload.get("retrieval_backend"),
+        "generation_mode": payload.get("generation_mode"),
+        "generation_error": payload.get("generation_error"),
     }
 
     with FEEDBACK_LOCK:

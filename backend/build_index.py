@@ -153,12 +153,12 @@ def build_index(
         pages.extend(fetch_pages(faculty_urls, fetch_workers))
 
     index_document = build_index_document(pages, FACULTIES)
-    save_index(index_document)
 
     if not skip_vector_index:
         vector_status = rebuild_vector_index(index_document, recreate=True)
         index_document["vector_index"] = vector_status
 
+    save_index(index_document)
     return index_document
 
 

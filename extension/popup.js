@@ -376,6 +376,9 @@ function updateResultMeta(data) {
   if (data.retrieval_backend) {
     metaParts.push(`Retrieval: ${data.retrieval_backend}`);
   }
+  if (data.generation_mode) {
+    metaParts.push(`Generare: ${data.generation_mode}`);
+  }
   if (data.confidence_reason) {
     metaParts.push(data.confidence_reason);
   }
@@ -547,6 +550,8 @@ async function sendMessage(prefilledQuestion = null) {
       confidence_score: data.confidence_score || 0,
       live_verified: Boolean(data.live_verified),
       retrieval_backend: data.retrieval_backend || "unknown",
+      generation_mode: data.generation_mode || "unknown",
+      generation_error: data.generation_error || "",
       sources
     });
 

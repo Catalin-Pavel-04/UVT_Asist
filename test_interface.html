@@ -1,0 +1,1085 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UVT Asist - Test Interface</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --panel-soft: #f9fafb;
+      --border: #d7dde8;
+      --text: #172033;
+      --muted: #647084;
+      --accent: #0f5c99;
+      --accent-strong: #084b80;
+      --accent-soft: #e7f1fb;
+      --success: #08745f;
+      --success-soft: #e4f6f1;
+      --warning: #9a5b09;
+      --warning-soft: #fff4df;
+      --danger: #b42318;
+      --danger-soft: #fde8e5;
+      --shadow: 0 10px 24px rgba(23, 32, 51, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-height: 100%;
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:disabled,
+    textarea:disabled,
+    select:disabled,
+    input:disabled {
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+
+    a {
+      color: var(--accent-strong);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .shell {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 18px 0 22px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      color: #fff;
+      background: var(--accent);
+      font-weight: 800;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .brand p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .status-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--danger);
+      box-shadow: 0 0 0 4px var(--danger-soft);
+    }
+
+    .status-dot.online {
+      background: var(--success);
+      box-shadow: 0 0 0 4px var(--success-soft);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 370px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .panel,
+    .chat,
+    .composer textarea,
+    .source-card,
+    pre {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .panel {
+      padding: 12px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: minmax(210px, 1fr) minmax(210px, 0.8fr);
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    label,
+    .section-title {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      color: var(--text);
+      outline: none;
+    }
+
+    input,
+    select {
+      min-height: 40px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel-soft);
+    }
+
+    textarea {
+      resize: vertical;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .button-row,
+    .chips,
+    .meta-grid,
+    .feedback-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .button,
+    .chip {
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      background: var(--panel);
+      padding: 7px 11px;
+      font-weight: 700;
+    }
+
+    .button.primary {
+      border-color: var(--accent);
+      color: #fff;
+      background: var(--accent);
+    }
+
+    .button.primary:hover {
+      background: var(--accent-strong);
+    }
+
+    .button.danger {
+      border-color: #efc7c2;
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .chip {
+      min-height: 32px;
+      color: var(--accent-strong);
+      background: var(--accent-soft);
+      font-size: 12px;
+    }
+
+    .switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .switch input {
+      width: auto;
+      min-height: 0;
+    }
+
+    .status-panel {
+      margin-bottom: 10px;
+      border-left: 4px solid var(--accent);
+    }
+
+    .status-panel.success {
+      border-left-color: var(--success);
+    }
+
+    .status-panel.warning {
+      border-left-color: var(--warning);
+    }
+
+    .status-panel.error {
+      border-left-color: var(--danger);
+    }
+
+    .status-title {
+      margin-bottom: 4px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .status-text,
+    .empty-text,
+    .meta-line,
+    .small-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .chat {
+      min-height: 440px;
+      height: min(58vh, 650px);
+      overflow-y: auto;
+      padding: 12px;
+      background: #fbfcfe;
+    }
+
+    .empty-state {
+      min-height: 410px;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 6px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .empty-title {
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .msg {
+      margin-bottom: 12px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .msg.user {
+      justify-items: end;
+    }
+
+    .msg-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .bubble {
+      width: fit-content;
+      max-width: min(720px, 88%);
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .msg.user .bubble {
+      color: #fff;
+      border-color: var(--accent);
+      background: var(--accent);
+    }
+
+    .source-list-inline {
+      width: min(720px, 88%);
+      display: grid;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    .source-link {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: var(--panel);
+      font-size: 12px;
+    }
+
+    .composer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .composer textarea {
+      min-height: 72px;
+      padding: 10px 12px;
+      line-height: 1.45;
+    }
+
+    .composer .button {
+      align-self: stretch;
+      min-width: 110px;
+    }
+
+    .side {
+      display: grid;
+      gap: 10px;
+    }
+
+    .meta-grid {
+      align-items: stretch;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      max-width: 100%;
+      padding: 5px 9px;
+      border-radius: 999px;
+      overflow: hidden;
+      color: var(--muted);
+      background: #eef1f5;
+      font-size: 12px;
+      font-weight: 800;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .badge.success {
+      color: var(--success);
+      background: var(--success-soft);
+    }
+
+    .badge.warning {
+      color: var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .badge.danger {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .source-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .source-card {
+      padding: 9px 10px;
+    }
+
+    .source-title {
+      margin-bottom: 3px;
+      font-size: 13px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    pre {
+      min-height: 160px;
+      max-height: 360px;
+      margin: 8px 0 0;
+      padding: 10px;
+      overflow: auto;
+      color: #1f2937;
+      background: #f8fafc;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .section-title + .small-note,
+    .section-title + .source-list,
+    .section-title + pre {
+      margin-top: 8px;
+    }
+
+    @media (max-width: 920px) {
+      .layout,
+      .controls {
+        grid-template-columns: 1fr;
+      }
+
+      .chat {
+        height: 52vh;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .shell {
+        width: min(100vw - 20px, 1180px);
+        padding-top: 12px;
+      }
+
+      .topbar,
+      .toolbar,
+      .composer {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        align-items: flex-start;
+      }
+
+      .top-actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .composer {
+        display: grid;
+      }
+
+      .composer .button {
+        min-height: 42px;
+      }
+
+      .bubble,
+      .source-list-inline {
+        max-width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">U</div>
+        <div>
+          <h1>UVT Asist - test local</h1>
+          <p>Interfata statica pentru verificarea API-ului Flask, fara extensia Chrome.</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span id="statusDot" class="status-dot" aria-hidden="true"></span>
+        <button id="healthBtn" class="button" type="button">Health</button>
+        <button id="clearBtn" class="button danger" type="button">Reset</button>
+      </div>
+    </header>
+
+    <section id="statusPanel" class="panel status-panel" aria-live="polite">
+      <div id="statusTitle" class="status-title">Pregatit</div>
+      <div id="statusText" class="status-text">Porneste backend-ul Flask pe http://127.0.0.1:5000, apoi trimite o intrebare.</div>
+    </section>
+
+    <section class="panel">
+      <div class="controls">
+        <div class="field">
+          <label for="backendUrl">Backend URL</label>
+          <input id="backendUrl" type="url" value="http://127.0.0.1:5000" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="faculty">Facultate</label>
+          <select id="faculty"></select>
+        </div>
+      </div>
+      <div class="toolbar">
+        <div class="chips" aria-label="Intrebari rapide">
+          <button class="chip" type="button" data-q="Unde gasesc orarul?" data-faculty="info">Orar info</button>
+          <button class="chip" type="button" data-q="Unde gasesc secretariatul facultatii de informatica?" data-faculty="info">Secretariat info</button>
+          <button class="chip" type="button" data-q="Este posibil ca un student sa beneficieze de 2 burse?" data-faculty="uvt">Reguli burse</button>
+          <button class="chip" type="button" data-q="Unde gasesc informatii despre admitere?" data-faculty="uvt">Admitere</button>
+          <button class="chip" type="button" data-q="Unde gasesc orrarul la info?" data-faculty="info">Typo orar</button>
+        </div>
+        <label class="switch" for="keepHistory">
+          <input id="keepHistory" type="checkbox" checked />
+          Trimite istoric
+        </label>
+      </div>
+    </section>
+
+    <div class="layout">
+      <section>
+        <div id="chat" class="chat" aria-label="Conversatie de test">
+          <div id="emptyState" class="empty-state">
+            <div class="empty-title">Testeaza RAG-ul local</div>
+            <div class="empty-text">Alege facultatea, trimite o intrebare si verifica raspunsul, sursele si JSON-ul returnat.</div>
+          </div>
+        </div>
+        <form id="composer" class="composer">
+          <textarea id="question" rows="3" placeholder="Scrie intrebarea aici..."></textarea>
+          <button id="sendBtn" class="button primary" type="submit">Trimite</button>
+        </form>
+      </section>
+
+      <aside class="side" aria-label="Inspector raspuns">
+        <section class="panel">
+          <div class="section-title">Metadate raspuns</div>
+          <div id="metaGrid" class="meta-grid" style="margin-top: 8px;">
+            <span class="badge">Confidence --</span>
+            <span class="badge">Index local</span>
+            <span class="badge">Backend --</span>
+          </div>
+          <div id="metaLine" class="meta-line" style="margin-top: 8px;">Niciun raspuns trimis inca.</div>
+          <div class="feedback-row" style="margin-top: 10px;">
+            <button id="goodBtn" class="button" type="button" disabled>Feedback bun</button>
+            <button id="badBtn" class="button" type="button" disabled>Feedback slab</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">Surse oficiale</div>
+          <div id="sources" class="source-list">
+            <div class="small-note">Sursele vor aparea dupa primul raspuns.</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">Health</div>
+          <pre id="healthJson">{}</pre>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">Raspuns JSON</div>
+          <pre id="rawJson">{}</pre>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const FALLBACK_FACULTIES = [
+      { id: "uvt", name: "UVT (general)" },
+      { id: "arte", name: "Facultatea de Arte si Design" },
+      { id: "cbg", name: "Facultatea de Chimie, Biologie, Geografie" },
+      { id: "drept", name: "Facultatea de Drept" },
+      { id: "feaa", name: "Facultatea de Economie si de Administrare a Afacerilor" },
+      { id: "sport", name: "Facultatea de Educatie Fizica si Sport" },
+      { id: "ffm", name: "Facultatea de Fizica si Matematica" },
+      { id: "info", name: "Facultatea de Informatica" },
+      { id: "fmt", name: "Facultatea de Muzica si Teatru" },
+      { id: "lift", name: "Facultatea de Litere, Istorie, Filosofie si Teologie" },
+      { id: "fsas", name: "Facultatea de Sociologie si Asistenta Sociala" },
+      { id: "fpse", name: "Facultatea de Psihologie si Stiinte ale Educatiei" },
+      { id: "fsgc", name: "Facultatea de Stiinte ale Guvernarii si Comunicarii" }
+    ];
+
+    const MAX_HISTORY_MESSAGES = 10;
+
+    const refs = {
+      backendUrl: document.getElementById("backendUrl"),
+      faculty: document.getElementById("faculty"),
+      question: document.getElementById("question"),
+      composer: document.getElementById("composer"),
+      sendBtn: document.getElementById("sendBtn"),
+      healthBtn: document.getElementById("healthBtn"),
+      clearBtn: document.getElementById("clearBtn"),
+      statusDot: document.getElementById("statusDot"),
+      statusPanel: document.getElementById("statusPanel"),
+      statusTitle: document.getElementById("statusTitle"),
+      statusText: document.getElementById("statusText"),
+      chat: document.getElementById("chat"),
+      emptyState: document.getElementById("emptyState"),
+      keepHistory: document.getElementById("keepHistory"),
+      metaGrid: document.getElementById("metaGrid"),
+      metaLine: document.getElementById("metaLine"),
+      sources: document.getElementById("sources"),
+      healthJson: document.getElementById("healthJson"),
+      rawJson: document.getElementById("rawJson"),
+      goodBtn: document.getElementById("goodBtn"),
+      badBtn: document.getElementById("badBtn"),
+      chips: Array.from(document.querySelectorAll(".chip"))
+    };
+
+    const state = {
+      sending: false,
+      history: [],
+      lastQuestion: "",
+      lastResponse: null,
+      faculties: FALLBACK_FACULTIES
+    };
+
+    function backendBaseUrl() {
+      return refs.backendUrl.value.trim().replace(/\/+$/, "") || "http://127.0.0.1:5000";
+    }
+
+    function setStatus(kind, title, text) {
+      refs.statusPanel.className = `panel status-panel ${kind || ""}`;
+      refs.statusTitle.textContent = title;
+      refs.statusText.textContent = text;
+      refs.statusDot.classList.toggle("online", kind === "success");
+    }
+
+    function setBusy(busy) {
+      state.sending = busy;
+      refs.sendBtn.disabled = busy;
+      refs.question.disabled = busy;
+      refs.faculty.disabled = busy;
+      refs.healthBtn.disabled = busy;
+      refs.chips.forEach((button) => {
+        button.disabled = busy;
+      });
+    }
+
+    function prettyJson(value) {
+      return JSON.stringify(value || {}, null, 2);
+    }
+
+    function populateFaculties(faculties, selectedId = "uvt") {
+      state.faculties = Array.isArray(faculties) && faculties.length ? faculties : FALLBACK_FACULTIES;
+      refs.faculty.innerHTML = "";
+      state.faculties.forEach((faculty) => {
+        const option = document.createElement("option");
+        option.value = faculty.id;
+        option.textContent = faculty.name;
+        refs.faculty.appendChild(option);
+      });
+      refs.faculty.value = selectedId;
+      if (refs.faculty.value !== selectedId) {
+        refs.faculty.value = "uvt";
+      }
+    }
+
+    function normalizeSources(sources = []) {
+      const seen = new Set();
+      return sources
+        .filter((source) => source && typeof source.url === "string" && source.url.trim())
+        .map((source) => ({
+          title: (source.title || "Sursa oficiala").trim(),
+          url: source.url.trim(),
+          verified: Boolean(source.verified)
+        }))
+        .filter((source) => {
+          if (seen.has(source.url)) {
+            return false;
+          }
+          seen.add(source.url);
+          return true;
+        });
+    }
+
+    function clearChat() {
+      refs.chat.innerHTML = "";
+      refs.chat.appendChild(refs.emptyState);
+      refs.emptyState.hidden = false;
+      state.history = [];
+      state.lastQuestion = "";
+      state.lastResponse = null;
+      refs.rawJson.textContent = "{}";
+      renderMeta(null);
+      renderSources([]);
+      updateFeedbackButtons();
+    }
+
+    function toggleEmptyState() {
+      refs.emptyState.hidden = refs.chat.querySelectorAll(".msg").length > 0;
+    }
+
+    function addMessage(role, label, text, sources = []) {
+      const item = document.createElement("article");
+      item.className = `msg ${role}`;
+
+      const labelEl = document.createElement("div");
+      labelEl.className = "msg-label";
+      labelEl.textContent = label;
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.textContent = text;
+
+      item.append(labelEl, bubble);
+
+      const normalizedSources = normalizeSources(sources);
+      if (normalizedSources.length) {
+        const list = document.createElement("div");
+        list.className = "source-list-inline";
+        normalizedSources.forEach((source) => {
+          const link = document.createElement("a");
+          link.className = "source-link";
+          link.href = source.url;
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.textContent = `${source.title} - ${source.url}`;
+          list.appendChild(link);
+        });
+        item.appendChild(list);
+      }
+
+      refs.chat.appendChild(item);
+      toggleEmptyState();
+      refs.chat.scrollTop = refs.chat.scrollHeight;
+      return item;
+    }
+
+    function updateMessage(item, text, sources = []) {
+      const bubble = item.querySelector(".bubble");
+      if (bubble) {
+        bubble.textContent = text;
+      }
+      item.querySelectorAll(".source-list-inline").forEach((node) => node.remove());
+      const normalizedSources = normalizeSources(sources);
+      if (normalizedSources.length) {
+        const list = document.createElement("div");
+        list.className = "source-list-inline";
+        normalizedSources.forEach((source) => {
+          const link = document.createElement("a");
+          link.className = "source-link";
+          link.href = source.url;
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.textContent = `${source.title} - ${source.url}`;
+          list.appendChild(link);
+        });
+        item.appendChild(list);
+      }
+      refs.chat.scrollTop = refs.chat.scrollHeight;
+    }
+
+    function appendHistory(role, content) {
+      if (!content || !["user", "assistant"].includes(role)) {
+        return;
+      }
+      state.history = [...state.history, { role, content }].slice(-MAX_HISTORY_MESSAGES);
+    }
+
+    function historyPayload() {
+      if (!refs.keepHistory.checked) {
+        return [];
+      }
+      return state.history.slice(-MAX_HISTORY_MESSAGES);
+    }
+
+    function renderMeta(data) {
+      refs.metaGrid.innerHTML = "";
+
+      if (!data) {
+        ["Confidence --", "Index local", "Backend --"].forEach((text) => {
+          const badge = document.createElement("span");
+          badge.className = "badge";
+          badge.textContent = text;
+          refs.metaGrid.appendChild(badge);
+        });
+        refs.metaLine.textContent = "Niciun raspuns trimis inca.";
+        return;
+      }
+
+      const confidence = data.confidence || "low";
+      const confidenceClass = confidence === "high" ? "success" : confidence === "medium" ? "warning" : "danger";
+      const badges = [
+        { text: `Confidence ${confidence} (${Math.round(Number(data.confidence_score || 0))}/100)`, kind: confidenceClass },
+        { text: data.live_verified ? "Live verificat" : "Index local", kind: data.live_verified ? "success" : "" },
+        { text: data.retrieval_backend || "Backend necunoscut", kind: "" },
+        { text: data.generation_mode || "Generare necunoscuta", kind: data.generation_mode === "ollama" ? "success" : "warning" },
+        { text: data.matched_faculty || "Facultate necunoscuta", kind: "" }
+      ];
+
+      badges.forEach((item) => {
+        const badge = document.createElement("span");
+        badge.className = `badge ${item.kind}`.trim();
+        badge.textContent = item.text;
+        refs.metaGrid.appendChild(badge);
+      });
+
+      refs.metaLine.textContent = data.confidence_reason || "Raspuns construit din sursele oficiale returnate de API.";
+    }
+
+    function renderSources(sources) {
+      refs.sources.innerHTML = "";
+      const normalizedSources = normalizeSources(sources);
+
+      if (!normalizedSources.length) {
+        const note = document.createElement("div");
+        note.className = "small-note";
+        note.textContent = "Nu exista surse pentru ultimul raspuns.";
+        refs.sources.appendChild(note);
+        return;
+      }
+
+      normalizedSources.forEach((source) => {
+        const card = document.createElement("article");
+        card.className = "source-card";
+
+        const title = document.createElement("div");
+        title.className = "source-title";
+        title.textContent = source.title;
+
+        const url = document.createElement("a");
+        url.href = source.url;
+        url.target = "_blank";
+        url.rel = "noreferrer";
+        url.textContent = source.url;
+
+        card.append(title, url);
+        refs.sources.appendChild(card);
+      });
+    }
+
+    function updateFeedbackButtons() {
+      const enabled = Boolean(state.lastResponse && state.lastQuestion);
+      refs.goodBtn.disabled = !enabled;
+      refs.badBtn.disabled = !enabled;
+    }
+
+    async function loadFaculties() {
+      const selected = localStorage.getItem("uvt-asist-test-faculty") || "uvt";
+      populateFaculties(FALLBACK_FACULTIES, selected);
+
+      try {
+        const response = await fetch(`${backendBaseUrl()}/faculties`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        populateFaculties(data.faculties || FALLBACK_FACULTIES, selected);
+      } catch {
+        populateFaculties(FALLBACK_FACULTIES, selected);
+      }
+    }
+
+    async function checkHealth() {
+      localStorage.setItem("uvt-asist-test-backend", backendBaseUrl());
+      setStatus("", "Verific backend-ul", "Se apeleaza /health...");
+
+      try {
+        const response = await fetch(`${backendBaseUrl()}/health`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        refs.healthJson.textContent = prettyJson(data);
+
+        const chunkCount = data.index?.chunk_count ?? 0;
+        const vectorCount = data.vector_index?.points_count ?? 0;
+        const model = data.ollama?.generation_model || "Ollama";
+        setStatus("success", "Backend disponibil", `Qdrant: ${vectorCount} vectori. JSON: ${chunkCount} fragmente. Model: ${model}.`);
+        await loadFaculties();
+        return true;
+      } catch (error) {
+        refs.healthJson.textContent = prettyJson({ error: error.message });
+        setStatus("error", "Backend indisponibil", "Porneste Flask pe 127.0.0.1:5000 si verifica Ollama/Qdrant prin /health.");
+        return false;
+      }
+    }
+
+    async function sendQuestion(questionOverride = "") {
+      if (state.sending) {
+        return;
+      }
+
+      const question = (questionOverride || refs.question.value).trim();
+      if (!question) {
+        refs.question.focus();
+        return;
+      }
+
+      const facultyId = refs.faculty.value || "uvt";
+      const payload = {
+        question,
+        faculty_id: facultyId,
+        history: historyPayload()
+      };
+
+      setBusy(true);
+      setStatus("", "Analizez intrebarea", "Se trimite payload-ul catre /chat si se asteapta raspunsul local.");
+      addMessage("user", "Tu", question);
+      const loadingItem = addMessage("assistant", "UVT Asist", "Se cauta semantic in Qdrant si se pregateste raspunsul...");
+      refs.question.value = "";
+
+      try {
+        const response = await fetch(`${backendBaseUrl()}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const sources = normalizeSources(data.sources || []);
+        const answer = data.answer || "Nu exista raspuns disponibil.";
+
+        updateMessage(loadingItem, answer, sources);
+        refs.rawJson.textContent = prettyJson(data);
+        renderMeta(data);
+        renderSources(sources);
+
+        appendHistory("user", question);
+        appendHistory("assistant", answer);
+        state.lastQuestion = question;
+        state.lastResponse = data;
+        updateFeedbackButtons();
+
+        if (data.confidence === "low") {
+          setStatus("warning", "Dovezi partiale", "API-ul a raspuns, dar increderea este scazuta sau sursele sunt limitate.");
+        } else {
+          setStatus("success", "Raspuns pregatit", data.live_verified ? "Sursele principale au fost reverificate live." : "Raspuns generat local din indexul oficial.");
+        }
+      } catch (error) {
+        updateMessage(loadingItem, `Eroare la apelarea backend-ului: ${error.message}`);
+        refs.rawJson.textContent = prettyJson({ error: error.message, payload });
+        setStatus("error", "Cerere esuata", "Verifica daca Flask ruleaza si daca browserul poate accesa backend-ul local.");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function sendFeedback(feedback) {
+      if (!state.lastResponse || !state.lastQuestion) {
+        return;
+      }
+
+      const payload = {
+        question: state.lastQuestion,
+        faculty_id: refs.faculty.value || "uvt",
+        matched_faculty: state.lastResponse.matched_faculty,
+        answer: state.lastResponse.answer,
+        confidence: state.lastResponse.confidence,
+        confidence_score: state.lastResponse.confidence_score,
+        feedback,
+        sources: state.lastResponse.sources || [],
+        source: "test_interface",
+        live_verified: Boolean(state.lastResponse.live_verified),
+        retrieval_backend: state.lastResponse.retrieval_backend,
+        generation_mode: state.lastResponse.generation_mode,
+        generation_error: state.lastResponse.generation_error
+      };
+
+      try {
+        const response = await fetch(`${backendBaseUrl()}/feedback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        setStatus("success", "Feedback trimis", `Feedback '${feedback}' inregistrat in backend/feedback_log.jsonl.`);
+      } catch (error) {
+        setStatus("error", "Feedback esuat", `Nu s-a putut trimite feedback-ul: ${error.message}`);
+      }
+    }
+
+    function bindEvents() {
+      refs.composer.addEventListener("submit", (event) => {
+        event.preventDefault();
+        sendQuestion();
+      });
+
+      refs.question.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault();
+          sendQuestion();
+        }
+      });
+
+      refs.healthBtn.addEventListener("click", checkHealth);
+      refs.clearBtn.addEventListener("click", clearChat);
+      refs.goodBtn.addEventListener("click", () => sendFeedback("good"));
+      refs.badBtn.addEventListener("click", () => sendFeedback("bad"));
+
+      refs.backendUrl.addEventListener("change", () => {
+        localStorage.setItem("uvt-asist-test-backend", backendBaseUrl());
+        loadFaculties();
+      });
+
+      refs.faculty.addEventListener("change", () => {
+        localStorage.setItem("uvt-asist-test-faculty", refs.faculty.value);
+      });
+
+      refs.chips.forEach((button) => {
+        button.addEventListener("click", () => {
+          const faculty = button.dataset.faculty;
+          if (faculty) {
+            refs.faculty.value = faculty;
+            localStorage.setItem("uvt-asist-test-faculty", refs.faculty.value);
+          }
+          refs.question.value = button.dataset.q || "";
+          sendQuestion(refs.question.value);
+        });
+      });
+    }
+
+    function init() {
+      refs.backendUrl.value = localStorage.getItem("uvt-asist-test-backend") || "http://127.0.0.1:5000";
+      populateFaculties(FALLBACK_FACULTIES, localStorage.getItem("uvt-asist-test-faculty") || "uvt");
+      bindEvents();
+      renderMeta(null);
+      renderSources([]);
+      loadFaculties();
+      checkHealth();
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -83,6 +83,12 @@ def main() -> int:
         f"Qdrant collection={vector_status.get('collection')} "
         f"available={vector_status.get('available')} points={vector_status.get('points_count')}"
     )
+    if vector_status.get("available") and vector_status.get("points_count") != index_document.get("chunk_count"):
+        print(
+            "FAILED: Qdrant point count does not match JSON chunk count "
+            f"({vector_status.get('points_count')} != {index_document.get('chunk_count')})."
+        )
+        return 1
 
     failures: list[str] = []
     for scenario in SCENARIOS:

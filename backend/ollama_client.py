@@ -9,14 +9,14 @@ import requests
 from dotenv import load_dotenv
 
 ENV_FILE = Path(__file__).with_name(".env")
+load_dotenv(ENV_FILE)
+
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_GENERATION_MODEL = "qwen3:4b"
 DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
-REQUEST_TIMEOUT_SECONDS = 120
-EMBED_TIMEOUT_SECONDS = 120
-MAX_EMBED_TEXT_CHARS = 6000
-
-load_dotenv(ENV_FILE)
+REQUEST_TIMEOUT_SECONDS = max(15, int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "120")))
+EMBED_TIMEOUT_SECONDS = max(15, int(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "120")))
+MAX_EMBED_TEXT_CHARS = max(1000, int(os.getenv("OLLAMA_MAX_EMBED_TEXT_CHARS", "6000")))
 
 
 @dataclass(frozen=True)

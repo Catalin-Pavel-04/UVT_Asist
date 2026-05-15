@@ -22,7 +22,7 @@ PATH_HINTS = {
     "contact": ("/contact", "/secretariat"),
     "admitere": ("/admitere", "/inscriere"),
     "regulamente": ("/regulamente", "/regulament", "/metodologii", "/metodologie", "/proceduri", "/procedura"),
-    "studenti": ("/studenti", "/student"),
+    "studenti": ("/studenti", "/student", "/structura-anului", "/cazare", "/cazari"),
 }
 
 TITLE_KEYWORDS = {
@@ -31,7 +31,7 @@ TITLE_KEYWORDS = {
     "contact": ("contact", "secretariat"),
     "admitere": ("admitere", "inscriere"),
     "regulamente": ("regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri", "anexa"),
-    "studenti": ("studenti", "student", "studentweb", "cazare", "taxe"),
+    "studenti": ("studenti", "student", "studentweb", "cazare", "camine", "cămine", "taxe", "structura anului", "anului universitar"),
 }
 
 CONTENT_KEYWORDS = {
@@ -40,7 +40,7 @@ CONTENT_KEYWORDS = {
     "contact": ("secretariat", "program cu publicul", "telefon", "e-mail"),
     "admitere": ("admitere", "inscriere", "candidat", "dosar"),
     "regulamente": ("regulament", "metodologie", "procedura", "hotarare", "anexa"),
-    "studenti": ("studenti", "studentweb", "cazare", "taxe"),
+    "studenti": ("studenti", "studentweb", "cazare", "camine", "cămine", "taxe", "structura anului universitar"),
 }
 
 GENERIC_TITLES = {
@@ -63,6 +63,10 @@ def normalize(text: str) -> str:
     value = unicodedata.normalize("NFKD", str(text).lower())
     value = "".join(char for char in value if not unicodedata.combining(char))
     return re.sub(r"\s+", " ", value).strip()
+
+
+def normalize_chunk_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text)).strip()
 
 
 def normalize_host(url: str) -> str:
@@ -172,8 +176,9 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = D
     return chunks
 
 
-def _build_chunk_id(url: str, position: int) -> str:
-    digest = hashlib.sha1(f"{normalize_url(url)}::{position}".encode("utf-8")).hexdigest()
+def _build_chunk_id(url: str, position: int, text: str = "", salt: str = "") -> str:
+    text_digest = hashlib.sha1(normalize_chunk_text(text).encode("utf-8")).hexdigest()[:12] if text else ""
+    digest = hashlib.sha1(f"{normalize_url(url)}::{position}::{text_digest}::{salt}".encode("utf-8")).hexdigest()
     return digest[:16]
 
 
@@ -198,7 +203,7 @@ def build_chunk_entries_from_pages(
 
         for position, chunk in enumerate(chunk_text(text), start=1):
             chunks.append({
-                "chunk_id": _build_chunk_id(url, position),
+                "chunk_id": _build_chunk_id(url, position, chunk),
                 "faculty_id": faculty_id,
                 "page_type": page_type,
                 "title": title,
@@ -245,11 +250,20 @@ def _normalize_chunk(raw_chunk: dict, fallback_position: int, timestamp: str, fa
         return None
 
     title = str(raw_chunk.get("title") or url).strip() or url
-    page_type = raw_chunk.get("page_type") or detect_page_type(url, title, chunk_text_value)
+    detected_page_type = detect_page_type(url, title, chunk_text_value)
+    raw_page_type = raw_chunk.get("page_type")
+    strong_student_hint = any(
+        hint in normalize(f"{title} {url}")
+        for hint in ("structura anului", "structura-anului", "cazare", "cazari", "camine")
+    )
+    if detected_page_type == "studenti" and raw_page_type in {"general", "contact"} and strong_student_hint:
+        page_type = detected_page_type
+    else:
+        page_type = raw_page_type or detected_page_type
     faculty_id = raw_chunk.get("faculty_id") or detect_faculty_id(url, faculties)
 
     return {
-        "chunk_id": str(raw_chunk.get("chunk_id") or _build_chunk_id(url, fallback_position)),
+        "chunk_id": str(raw_chunk.get("chunk_id") or _build_chunk_id(url, fallback_position, chunk_text_value)),
         "faculty_id": faculty_id,
         "page_type": page_type,
         "title": title,
@@ -285,12 +299,31 @@ def _normalize_loaded_document(raw_data, file_timestamp: float | None) -> dict:
     page_urls: set[str] = set()
     built_at = str(raw_data.get("built_at") or timestamp)
 
+    seen_content: set[tuple[str, str]] = set()
+    seen_chunk_ids: set[str] = set()
+
     for fallback_position, raw_chunk in enumerate(raw_chunks, start=1):
         if not isinstance(raw_chunk, dict):
             continue
         chunk = _normalize_chunk(raw_chunk, fallback_position, built_at, FACULTIES)
         if not chunk:
             continue
+
+        content_key = (chunk["url"], normalize_chunk_text(chunk["chunk_text"]))
+        if content_key in seen_content:
+            continue
+
+        chunk_id = chunk["chunk_id"]
+        if chunk_id in seen_chunk_ids:
+            repaired_id = _build_chunk_id(chunk["url"], fallback_position, chunk["chunk_text"])
+            repair_counter = 1
+            while repaired_id in seen_chunk_ids:
+                repair_counter += 1
+                repaired_id = _build_chunk_id(chunk["url"], fallback_position, chunk["chunk_text"], str(repair_counter))
+            chunk = {**chunk, "chunk_id": repaired_id}
+
+        seen_content.add(content_key)
+        seen_chunk_ids.add(chunk["chunk_id"])
         chunks.append(chunk)
         page_urls.add(chunk["url"])
 

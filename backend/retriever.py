@@ -23,7 +23,11 @@ INTENT_KEYWORDS = {
     "contact": ("contact", "secretariat", "telefon", "email", "adresa", "program public"),
     "admitere": ("admitere", "inscriere", "inscrieri", "candidat", "dosar"),
     "regulamente": ("regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri"),
-    "studenti": ("student", "studenti", "cazare", "taxa", "taxe", "studentweb"),
+    "studenti": (
+        "student", "studenti", "cazare", "camin", "camine", "taxa", "taxe", "studentweb",
+        "calendar academic", "structura anului", "an universitar", "anul universitar",
+        "inceperea anului",
+    ),
 }
 
 INTENT_PAGE_TYPES = {
@@ -42,7 +46,7 @@ PAGE_HINTS = {
     "contact": ("contact", "secretariat"),
     "admitere": ("admitere", "inscriere"),
     "regulamente": ("regulamente", "regulament", "metodologie", "metodologii", "procedura", "proceduri"),
-    "studenti": ("studenti", "studentweb", "cazare", "taxe"),
+    "studenti": ("studenti", "studentweb", "cazare", "camine", "camin", "taxe", "calendar", "structura anului"),
 }
 
 COMMON_REPLACEMENTS = (
@@ -57,6 +61,8 @@ COMMON_REPLACEMENTS = (
     (r"\bsecretar(?:uat|ait)\b", "secretariat"),
     (r"\bsecreteriat\b", "secretariat"),
     (r"\bsecretariatul\b", "secretariat"),
+    (r"\bcamine(?:le|lor)?\b", "camine"),
+    (r"\bcamin(?:ul|ului)?\b", "camin"),
     (r"\badmietere\b", "admitere"),
     (r"\badmiter[ew]\b", "admitere"),
     (r"\bburs[aeiw]\b", "burse"),
@@ -81,27 +87,34 @@ TOKEN_ALIASES = {
     "procedurile": "proceduri",
     "admiterea": "admitere",
     "inscrierea": "inscriere",
+    "anul": "an",
     "beneficieze": "beneficia",
     "beneficiez": "beneficia",
     "beneficiaza": "beneficia",
     "cumula": "cumulare",
     "cumularea": "cumulare",
     "cumuleaza": "cumulare",
+    "caminul": "camin",
+    "caminului": "camin",
+    "caminele": "camine",
+    "caminelor": "camine",
 }
 
 STOPWORDS = {
     "a", "ai", "al", "ale", "am", "ar", "as", "asta", "ca", "care", "ce", "cea", "cele", "cel",
     "cei", "cum", "cu", "de", "din", "doar", "e", "este", "fi", "fie", "gasesc", "in", "la",
     "mai", "ma", "mi", "o", "pe", "pentru", "pot", "poate", "sa", "sau", "se", "si", "sunt",
-    "un", "unei", "unui", "unde", "vreau",
+    "cand", "spune", "spune-mi", "te", "rog", "despre", "ceva", "imi", "un", "unei", "unui", "unde", "vreau",
 }
 
 DOMAIN_VOCABULARY = {
     "admitere", "adresa", "anexa", "beneficia", "bursa", "burse", "candidat", "cazare",
     "contact", "cumulare", "dosar", "email", "facultate", "informatica", "inscriere",
     "informatii", "informatie", "metodologie", "metodologii", "orar", "orare", "procedura",
-    "proceduri", "program", "regulament", "regulamente", "secretariat", "student", "studenti",
-    "studentweb", "taxa", "taxe", "telefon", "uvt",
+    "model", "proceduri", "proba", "program", "regulament", "regulamente", "secretariat",
+    "student", "studenti", "subiect", "subiecte",
+    "an", "calendar", "camin", "camine", "incepe", "inceperea", "parola", "studentweb",
+    "structura", "taxa", "taxe", "telefon", "universitar", "uvt", "wifi",
 }
 
 POLICY_PHRASES = (
@@ -265,7 +278,7 @@ def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: 
         "contact": ("contact", "secretariat", "telefon", "email", "adresa"),
         "admitere": ("admitere", "inscriere", "candidat", "dosar"),
         "regulamente": ("regulament", "regulamente", "metodologie", "procedura", "anexa"),
-        "studenti": ("student", "studenti", "studentweb"),
+        "studenti": ("student", "studenti", "studentweb", "cazare", "camin", "camine", "taxe", "calendar", "structura", "universitar"),
     }
 
     for token in synonyms.get(intent, ()):
@@ -479,8 +492,33 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
     path = chunk["_path"].lower()
     signals: list[str] = []
     score = 0.0
+    query_years = {token for token in analysis.tokens if re.fullmatch(r"20\d{2}", token)}
+    query_tokens = set(analysis.tokens)
+    is_exam_model_page = _contains_any(title_url, ("model-subiecte", "model subiecte", "subiecte_"))
+    if is_exam_model_page and not {"model", "subiect", "subiecte", "proba"} & query_tokens:
+        score -= 70
+        signals.append("exam_model_penalty")
 
-    for hint in PAGE_HINTS.get(analysis.intent, ()):
+    if query_years:
+        title_academic_years = set(re.findall(r"20\d{2}", title_url))
+        if title_academic_years & query_years:
+            score += 30
+            signals.append("year:title")
+        elif re.search(r"20\d{2}[-_/]20\d{2}", title_url):
+            score -= 50
+            signals.append("year:title_mismatch")
+
+        if any(year in chunk["_text_norm"][:2200] for year in query_years):
+            score += 10
+            signals.append("year:content")
+
+    page_hints = PAGE_HINTS.get(analysis.intent, ())
+    if analysis.intent == "studenti":
+        query_text = normalize(analysis.corrected_question)
+        query_tokens = set(analysis.tokens)
+        page_hints = tuple(hint for hint in page_hints if hint in query_tokens or hint in query_text)
+
+    for hint in page_hints:
         if hint in title_url:
             score += 14
             signals.append(f"hint:{hint}")
@@ -514,6 +552,43 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
         if "burse" in path or "bursa" in path:
             score += 22
             signals.append("scholarship_path")
+    elif analysis.intent == "studenti":
+        query_tokens = set(analysis.tokens)
+        asks_housing = bool({"cazare", "camin", "camine"} & query_tokens)
+        asks_fees = bool({"taxa", "taxe"} & query_tokens)
+        asks_calendar = bool({"calendar", "structura", "universitar", "an", "incepe", "inceperea"} & query_tokens)
+
+        if asks_housing and _contains_any(title_url, ("cazare", "camin", "camine")):
+            score += 46
+            signals.append("housing_exact")
+        elif asks_housing and _contains_any(chunk["_text_norm"][:1800], ("cazare", "camin", "camine")):
+            score += 26
+            signals.append("housing_content")
+        elif asks_housing and asks_fees and "taxe" in title_url:
+            score -= 26
+            signals.append("housing_missing")
+
+        if asks_fees and "taxe" in title_url:
+            score += 14
+            signals.append("student_fees")
+
+        calendar_hit = asks_calendar and (
+            "structura anului universitar" in title_url
+            or "structura anului universitar" in chunk["_text_norm"][:2200]
+            or "inceperea anului universitar" in chunk["_text_norm"][:2200]
+        )
+        if calendar_hit:
+            score += 78
+            signals.append("academic_calendar")
+            if "structura-anului" in title_url or "structura anului" in title_url:
+                score += 26
+                signals.append("academic_calendar_title")
+            if chunk["_is_document"]:
+                score += 34
+                signals.append("academic_calendar_document")
+        elif asks_calendar:
+            score -= 55
+            signals.append("calendar_missing")
 
     if chunk["_is_document"]:
         score += 6
@@ -534,7 +609,7 @@ def _faculty_score(chunk: dict, analysis: QueryAnalysis, selected_faculty: str) 
 
     if selected_faculty == GENERAL_FACULTY_ID:
         if faculty_id == GENERAL_FACULTY_ID:
-            score += 14
+            score += 18
             signals.append("faculty:uvt")
         elif analysis.is_policy_question and is_policy_document:
             score += 18
@@ -542,6 +617,9 @@ def _faculty_score(chunk: dict, analysis: QueryAnalysis, selected_faculty: str) 
         elif analysis.is_policy_question:
             score -= 14
             signals.append("faculty:other_policy_penalty")
+        else:
+            score -= 28
+            signals.append("faculty:other_uvt_scope_penalty")
     else:
         if faculty_id == selected_faculty:
             score += 34
@@ -798,6 +876,54 @@ def _score_semantic_candidates(
     return scored
 
 
+def _score_lexical_backfill_candidates(
+    prepared_chunks: list[dict],
+    analysis: QueryAnalysis,
+    selected_faculty: str,
+    idf: dict[str, float],
+    limit: int = 30,
+) -> list[dict]:
+    scored: list[dict] = []
+    for prepared_chunk in prepared_chunks:
+        if not _candidate_allowed(prepared_chunk, analysis, selected_faculty):
+            continue
+        candidate = score_chunk_candidate(prepared_chunk, analysis, selected_faculty, idf)
+        if candidate["retrieval_score"] <= 0:
+            continue
+        candidate["semantic_score"] = 0.0
+        candidate["vector_filter"] = "lexical_backfill"
+        candidate["match_signals"] = list(dict.fromkeys([
+            *candidate.get("match_signals", []),
+            "lexical_backfill",
+        ]))
+        scored.append(candidate)
+
+    scored = _prefer_policy_candidates(scored, analysis)
+    scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
+    return scored[:limit]
+
+
+def _merge_scored_candidates(candidate_groups: list[list[dict]]) -> list[dict]:
+    merged: dict[str, dict] = {}
+    for group in candidate_groups:
+        for candidate in group:
+            chunk_id = str(candidate.get("chunk_id") or "")
+            if not chunk_id:
+                continue
+            previous = merged.get(chunk_id)
+            if previous is None or candidate.get("retrieval_score", 0) > previous.get("retrieval_score", 0):
+                merged[chunk_id] = dict(candidate)
+            else:
+                previous["match_signals"] = list(dict.fromkeys([
+                    *previous.get("match_signals", []),
+                    *candidate.get("match_signals", []),
+                ]))
+
+    scored = list(merged.values())
+    scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
+    return scored
+
+
 def rank_vector_index(question: str, index_document: dict, selected_faculty: str, top_k: int = 6) -> dict:
     analysis = analyze_query(question)
     prepared_index = prepare_index(index_document)
@@ -808,6 +934,13 @@ def rank_vector_index(question: str, index_document: dict, selected_faculty: str
         selected_faculty,
         prepared_index.get("idf", {}),
     )
+    lexical_backfill = _score_lexical_backfill_candidates(
+        prepared_index.get("chunks", []),
+        analysis,
+        selected_faculty,
+        prepared_index.get("idf", {}),
+    )
+    scored = _merge_scored_candidates([scored, lexical_backfill])
     chunks = select_diverse_chunks(scored, top_k=top_k)
     confidence = compute_confidence(chunks, analysis)
 
@@ -910,11 +1043,38 @@ def compute_confidence(scored_chunks: list[dict], analysis: QueryAnalysis | dict
     second_score = float(scored_chunks[1].get("retrieval_score", 0.0)) if len(scored_chunks) > 1 else 0.0
     unique_pages = len({chunk.get("url") for chunk in scored_chunks[:4] if chunk.get("url")})
     signals = set(top.get("match_signals", []))
+    direct_support = any(
+        signal.startswith("lexical:")
+        or signal in {"all_terms", "phrase", "housing_exact", "housing_content", "academic_calendar"}
+        or signal.startswith("hint:")
+        or signal.endswith("_path")
+        for signal in signals
+    )
+    lexical_count = 0
+    for signal in signals:
+        if signal.startswith("lexical:"):
+            try:
+                lexical_count = max(lexical_count, int(signal.split(":", 1)[1]))
+            except ValueError:
+                pass
 
     numeric_score = int(min(100, 28 + best_score * 0.45 + second_score * 0.12 + unique_pages * 4 + len(signals) * 2))
 
+    if not direct_support:
+        numeric_score = min(numeric_score, 44)
+    elif lexical_count == 0 and not {"housing_exact", "housing_content", "academic_calendar"} & signals:
+        numeric_score = min(numeric_score, 58)
+    elif lexical_count == 1 and analysis_dict.get("intent") == "general":
+        numeric_score = min(numeric_score, 62)
+
     if "generic_penalty" in signals:
         numeric_score = min(numeric_score, 58)
+    if "faculty:other_uvt_scope_penalty" in signals:
+        numeric_score = min(numeric_score, 70)
+    if "housing_missing" in signals:
+        numeric_score = min(numeric_score, 50)
+    if "calendar_missing" in signals:
+        numeric_score = min(numeric_score, 50)
     if analysis_dict.get("is_policy_question") and not any(signal.startswith("policy:") for signal in signals):
         numeric_score = min(numeric_score, 48)
     if analysis_dict.get("is_policy_question") and "policy:cumulation_missing" in signals:

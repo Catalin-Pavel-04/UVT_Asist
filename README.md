@@ -110,6 +110,12 @@ Invoke-RestMethod http://127.0.0.1:5000/health
 
 The health payload reports Ollama availability, configured models, JSON index status, Qdrant collection status, live verification cache, and response cache size.
 
+## Optional Local Test Interface
+
+For backend testing without loading the Chrome extension, open `test_interface.html` directly in a browser while Flask is running on `http://127.0.0.1:5000`.
+
+The page is a development-only test harness for `/health`, `/faculties`, `/chat`, and `/feedback`. It shows the answer, confidence metadata, official sources, health JSON, and raw response JSON. The Chrome extension popup remains the only user-facing product interface.
+
 ## Load The Chrome Extension
 
 1. Open `chrome://extensions`.
