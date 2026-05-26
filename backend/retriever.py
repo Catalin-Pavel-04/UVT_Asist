@@ -6,13 +6,14 @@ import re
 import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from difflib import get_close_matches
 from pathlib import PurePosixPath
 from typing import Iterable
 from urllib.parse import urlparse
 
 from page_index import is_generic_page_title
-from ollama_client import embed_text
+from ollama_client import ask_ollama_json, embed_text
 from vector_store import search_chunks
 
 GENERAL_FACULTY_ID = "uvt"
@@ -21,12 +22,16 @@ INTENT_KEYWORDS = {
     "orar": ("orar", "orare", "program cursuri", "program seminar"),
     "burse": ("bursa", "burse", "bursier", "bursieri"),
     "contact": ("contact", "secretariat", "telefon", "email", "adresa", "program public"),
-    "admitere": ("admitere", "inscriere", "inscrieri", "candidat", "dosar"),
-    "regulamente": ("regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri"),
+    "admitere": ("admitere", "inscriere", "inscrieri", "candidat"),
+    "regulamente": (
+        "regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri",
+        "credite voluntariat", "credite de voluntariat", "portofoliu", "portofolii", "voluntariat",
+    ),
     "studenti": (
         "student", "studenti", "cazare", "camin", "camine", "taxa", "taxe", "studentweb",
         "calendar academic", "structura anului", "an universitar", "anul universitar",
-        "inceperea anului",
+        "inceperea anului", "credite voluntariat", "credite de voluntariat", "portofoliu", "portofolii",
+        "voluntariat",
     ),
 }
 
@@ -45,8 +50,14 @@ PAGE_HINTS = {
     "burse": ("burse", "bursa", "burselor"),
     "contact": ("contact", "secretariat"),
     "admitere": ("admitere", "inscriere"),
-    "regulamente": ("regulamente", "regulament", "metodologie", "metodologii", "procedura", "proceduri"),
-    "studenti": ("studenti", "studentweb", "cazare", "camine", "camin", "taxe", "calendar", "structura anului"),
+    "regulamente": (
+        "regulamente", "regulament", "metodologie", "metodologii", "procedura", "proceduri",
+        "voluntariat", "credite-voluntariat", "credite voluntariat",
+    ),
+    "studenti": (
+        "studenti", "studentweb", "cazare", "camine", "camin", "taxe", "calendar", "structura anului",
+        "voluntariat", "credite-voluntariat", "credite voluntariat", "portofoliu",
+    ),
 }
 
 COMMON_REPLACEMENTS = (
@@ -71,6 +82,10 @@ COMMON_REPLACEMENTS = (
     (r"\bcumuleaz[ae]\b", "cumulare"),
     (r"\bcumulat[ae]?\b", "cumulare"),
     (r"\bdoua\b", "2"),
+    (r"\bcredit(?:ele|elor|ului)?\b", "credite"),
+    (r"\bdepun(?:erea|erii|e)?\b", "depune"),
+    (r"\bportofoli(?:ul|ului|ile|ilor)?\b", "portofoliu"),
+    (r"\bvoluntariat(?:ul|ului)?\b", "voluntariat"),
 )
 
 TOKEN_ALIASES = {
@@ -91,30 +106,40 @@ TOKEN_ALIASES = {
     "beneficieze": "beneficia",
     "beneficiez": "beneficia",
     "beneficiaza": "beneficia",
+    "creditul": "credite",
+    "creditelor": "credite",
+    "creditele": "credite",
     "cumula": "cumulare",
     "cumularea": "cumulare",
     "cumuleaza": "cumulare",
+    "depunerea": "depune",
+    "depunerii": "depune",
     "caminul": "camin",
     "caminului": "camin",
     "caminele": "camine",
     "caminelor": "camine",
+    "portofoliile": "portofoliu",
+    "portofoliilor": "portofoliu",
+    "portofoliului": "portofoliu",
+    "voluntariatului": "voluntariat",
 }
 
 STOPWORDS = {
     "a", "ai", "al", "ale", "am", "ar", "as", "asta", "ca", "care", "ce", "cea", "cele", "cel",
     "cei", "cum", "cu", "de", "din", "doar", "e", "este", "fi", "fie", "gasesc", "in", "la",
     "mai", "ma", "mi", "o", "pe", "pentru", "pot", "poate", "sa", "sau", "se", "si", "sunt",
-    "cand", "spune", "spune-mi", "te", "rog", "despre", "ceva", "imi", "un", "unei", "unui", "unde", "vreau",
+    "cand", "spune", "spune-mi", "te", "rog", "despre", "ceva", "imi", "pt", "un", "unei", "unui", "unde", "vreau",
 }
 
 DOMAIN_VOCABULARY = {
     "admitere", "adresa", "anexa", "beneficia", "bursa", "burse", "candidat", "cazare",
-    "contact", "cumulare", "dosar", "email", "facultate", "informatica", "inscriere",
-    "informatii", "informatie", "metodologie", "metodologii", "orar", "orare", "procedura",
-    "model", "proceduri", "proba", "program", "regulament", "regulamente", "secretariat",
-    "student", "studenti", "subiect", "subiecte",
+    "adeverinta", "contact", "cumulare", "depune", "depunere", "dosar", "email", "evaluare",
+    "facultate", "formular", "informatica", "inscriere", "informatii", "informatie", "metodologie",
+    "metodologii", "orar", "orare", "procedura",
+    "model", "portofoliu", "portofolii", "proceduri", "proba", "program", "regulament", "regulamente",
+    "raport", "recunoastere", "secretariat", "student", "studenti", "subiect", "subiecte", "voluntariat",
     "an", "calendar", "camin", "camine", "incepe", "inceperea", "parola", "studentweb",
-    "structura", "taxa", "taxe", "telefon", "universitar", "uvt", "wifi",
+    "structura", "taxa", "taxe", "telefon", "universitar", "uvt", "wifi", "credit", "credite",
 }
 
 POLICY_PHRASES = (
@@ -136,8 +161,16 @@ POLICY_PHRASES = (
 POLICY_DOCUMENT_TERMS = ("regulament", "metodologie", "procedura", "anexa", "hotarare")
 SCHOLARSHIP_TERMS = ("bursa", "burse", "burselor", "bursieri", "sprijin financiar")
 CUMULATION_TERMS = ("cumulare", "cumuleaza", "cumula", "art 5", "art. 5")
+VOLUNTEERING_TERMS = ("voluntariat", "voluntar", "voluntari", "ong", "portofoliu", "portofolii")
+VOLUNTEERING_CREDIT_TERMS = ("credite", "credit", "creditelor", "transferabile")
+SUBMISSION_TERMS = ("depune", "depunere", "depunerea", "portofoliu", "portofolii", "formular", "dosar")
 VECTOR_SEARCH_LIMIT = max(8, int(os.getenv("VECTOR_SEARCH_LIMIT", "18")))
 SEMANTIC_SCORE_WEIGHT = float(os.getenv("SEMANTIC_SCORE_WEIGHT", "58"))
+VECTOR_LEXICAL_BACKFILL_ENABLED = os.getenv("VECTOR_LEXICAL_BACKFILL_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+OLLAMA_QUERY_ANALYSIS_TIMEOUT_SECONDS = max(1, int(os.getenv("OLLAMA_QUERY_ANALYSIS_TIMEOUT_SECONDS", "8")))
+OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS = max(4, int(os.getenv("OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS", "12")))
 
 _PREPARED_INDEX_CACHE: dict | None = None
 _PREPARED_INDEX_SIGNATURE: tuple | None = None
@@ -185,7 +218,7 @@ def tokenize(text: str, remove_stopwords: bool = True) -> list[str]:
         token = _canonical_token(raw_token.strip("-"))
         if not token:
             continue
-        if remove_stopwords and (token in STOPWORDS or len(token) < 2):
+        if remove_stopwords and (token in STOPWORDS or (len(token) < 2 and not token.isdigit())):
             continue
         tokens.append(token)
     return tokens
@@ -227,8 +260,15 @@ def _score_intents(question: str, tokens: Iterable[str]) -> dict[str, int]:
 
     if "program" in token_set and {"secretariat", "contact"} & token_set:
         scores["contact"] += 4
+    if "dosar" in token_set and ({"admitere", "inscriere", "candidat"} & token_set or "dosar de admitere" in question_text):
+        scores["admitere"] += 4
     if {"burse", "bursa"} & token_set and {"2", "cumulare", "beneficia", "conditii", "eligibil"} & token_set:
         scores["regulamente"] += 8
+    if is_volunteering_credit_query(question_text, token_set):
+        scores["regulamente"] += 12
+        scores["studenti"] += 8
+        if not ({"admitere", "inscriere", "candidat"} & token_set or "dosar de admitere" in question_text):
+            scores["admitere"] -= 10
     if any(phrase in question_text for phrase in POLICY_PHRASES):
         scores["regulamente"] += 5
 
@@ -248,6 +288,8 @@ def detect_policy_question(question: str, intent: str) -> bool:
 
     if intent == "regulamente":
         return True
+    if is_volunteering_credit_query(question_text, tokens):
+        return True
     if any(phrase in question_text for phrase in POLICY_PHRASES):
         return True
     if {"regulament", "regulamente", "metodologie", "procedura", "proceduri"} & tokens:
@@ -258,8 +300,17 @@ def detect_policy_question(question: str, intent: str) -> bool:
     return False
 
 
+def is_volunteering_credit_query(question_text: str, tokens: Iterable[str]) -> bool:
+    token_set = set(tokens)
+    has_volunteering = bool(set(VOLUNTEERING_TERMS) & token_set) or "voluntariat" in question_text
+    has_credit_or_submission = bool(set(VOLUNTEERING_CREDIT_TERMS + SUBMISSION_TERMS) & token_set)
+    return has_volunteering and has_credit_or_submission
+
+
 def build_page_type_preferences(intent: str, is_policy_question: bool, tokens: Iterable[str]) -> tuple[str, ...]:
     token_set = set(tokens)
+    if is_volunteering_credit_query(" ".join(token_set), token_set):
+        return ("regulamente", "studenti", "general")
     if is_policy_question:
         if {"burse", "bursa"} & token_set:
             return ("regulamente", "burse", "studenti", "general")
@@ -285,6 +336,22 @@ def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: 
         if token not in expanded:
             expanded.append(token)
 
+    expanded_set = set(expanded)
+    if is_volunteering_credit_query(" ".join(expanded), expanded_set):
+        for token in (
+            "voluntariat",
+            "credite",
+            "transferabile",
+            "portofoliu",
+            "formular",
+            "raport",
+            "adeverinta",
+            "evaluare",
+            "recunoastere",
+        ):
+            if token not in expanded:
+                expanded.append(token)
+
     if is_policy_question:
         for token in ("regulament", "metodologie", "procedura", "anexa", "conditii", "eligibil"):
             if token not in expanded:
@@ -297,7 +364,7 @@ def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: 
     return tuple(expanded)
 
 
-def analyze_query(question: str) -> QueryAnalysis:
+def analyze_query_deterministic(question: str) -> QueryAnalysis:
     normalized_question = normalize(question)
     corrected_question, corrections = correct_query_terms(question)
     intent = detect_intent(corrected_question)
@@ -319,6 +386,198 @@ def analyze_query(question: str) -> QueryAnalysis:
     )
 
 
+def query_analysis_enabled() -> bool:
+    return os.getenv("OLLAMA_QUERY_ANALYSIS_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _query_analysis_allowed_token(token: str, original_tokens: set[str]) -> bool:
+    if token.isdigit() or token in original_tokens:
+        return True
+
+    if original_tokens & set(VOLUNTEERING_TERMS + VOLUNTEERING_CREDIT_TERMS):
+        allowed = set(VOLUNTEERING_TERMS + VOLUNTEERING_CREDIT_TERMS + SUBMISSION_TERMS + POLICY_DOCUMENT_TERMS)
+        allowed.update({"raport", "adeverinta", "evaluare", "recunoastere"})
+        return token in allowed
+
+    if original_tokens & set(SCHOLARSHIP_TERMS + CUMULATION_TERMS):
+        allowed = set(SCHOLARSHIP_TERMS + CUMULATION_TERMS + POLICY_DOCUMENT_TERMS)
+        allowed.update({"conditii", "eligibil", "beneficia", "student", "studenti"})
+        return token in allowed
+
+    if original_tokens & {"admitere", "inscriere", "candidat"}:
+        return token in {"admitere", "inscriere", "candidat", "dosar", "taxa", "taxe", "program"}
+
+    if original_tokens & {"orar", "orare"}:
+        return token in {"orar", "orare", "program"}
+
+    if original_tokens & {"contact", "secretariat"}:
+        return token in {"contact", "secretariat", "telefon", "email", "adresa", "program"}
+
+    if original_tokens & {"cazare", "camin", "camine"}:
+        return token in {"cazare", "camin", "camine", "student", "studenti", "conditii", "eligibil"}
+
+    if original_tokens & {"regulament", "regulamente", "metodologie", "procedura", "proceduri"}:
+        return token in DOMAIN_VOCABULARY
+
+    return False
+
+
+def _validated_query_analysis_tokens(values, original_tokens: set[str]) -> list[str]:
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list):
+        return []
+
+    tokens: list[str] = []
+    for value in values:
+        for token in tokenize(str(value)):
+            if _query_analysis_allowed_token(token, original_tokens):
+                tokens.append(token)
+            if len(tokens) >= OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS:
+                break
+        if len(tokens) >= OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS:
+            break
+    return list(dict.fromkeys(tokens))
+
+
+def _validated_query_analysis_intents(values) -> set[str]:
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list):
+        return set()
+
+    allowed_intents = set(INTENT_KEYWORDS) | {"general"}
+    return {
+        normalize(str(value))
+        for value in values
+        if normalize(str(value)) in allowed_intents
+    }
+
+
+def _validated_corrected_question(value, base: QueryAnalysis) -> str:
+    corrected = normalize(str(value or "")).strip()
+    if len(corrected) < 3 or len(corrected) > 260:
+        return base.corrected_question
+
+    original_tokens = set(base.tokens)
+    corrected_tokens = set(tokenize(corrected))
+    if corrected_tokens and corrected_tokens & original_tokens:
+        return corrected
+    return base.corrected_question
+
+
+def _build_ollama_query_analysis_prompt(question: str, base: QueryAnalysis) -> tuple[str, str]:
+    system_prompt = (
+        "Esti un modul local de intelegere a intrebarilor pentru un asistent UVT. "
+        "Nu raspunde la intrebare si nu alege surse. Returneaza exclusiv JSON valid."
+    )
+    user_prompt = f"""
+Analizeaza intrebarea unui student UVT si returneaza doar acest JSON:
+{{
+  "corrected_question": "intrebarea corectata scurt, in romana fara diacritice obligatorii",
+  "intent": "una dintre: orar, burse, contact, admitere, regulamente, studenti, general",
+  "is_policy_question": true,
+  "keywords": ["termeni UVT relevanti pentru cautare"],
+  "exclude_intents": ["intentii care nu se potrivesc"]
+}}
+
+Reguli:
+- Nu introduce informatii care nu sunt sustinute de intrebare.
+- Keywords trebuie sa fie substantive/termeni scurti utili pentru cautare, nu propozitii.
+- Daca apar "credite" si "voluntariat", prefera intent regulamente/studenti, nu admitere.
+- Daca "dosar" apare fara context de admitere/candidat/inscriere, nu presupune admitere.
+- Pentru reguli, conditii, cumul, metodologii, proceduri, portofolii sau documente, marcheaza is_policy_question true.
+
+Intrebare originala: {question}
+Analiza deterministica existenta:
+{base.to_dict()}
+""".strip()
+    return system_prompt, user_prompt
+
+
+def request_ollama_query_analysis(question: str, base: QueryAnalysis) -> dict | None:
+    system_prompt, user_prompt = _build_ollama_query_analysis_prompt(question, base)
+    try:
+        return ask_ollama_json(
+            system_prompt,
+            user_prompt,
+            timeout_seconds=OLLAMA_QUERY_ANALYSIS_TIMEOUT_SECONDS,
+            num_predict=220,
+        )
+    except Exception:
+        return None
+
+
+def merge_ollama_query_analysis(question: str, base: QueryAnalysis, suggestion: dict | None) -> QueryAnalysis:
+    if not isinstance(suggestion, dict):
+        return base
+
+    original_tokens = set(base.tokens)
+    corrected_question = _validated_corrected_question(suggestion.get("corrected_question"), base)
+    tokens = tuple(tokenize(corrected_question)) or base.tokens
+    keyword_tokens = _validated_query_analysis_tokens(suggestion.get("keywords"), original_tokens | set(tokens))
+    excluded_intents = _validated_query_analysis_intents(suggestion.get("exclude_intents"))
+
+    intent_text = normalize(str(suggestion.get("intent") or ""))
+    allowed_intents = set(INTENT_KEYWORDS) | {"general"}
+    candidate_tokens = list(dict.fromkeys([*tokens, *keyword_tokens]))
+    candidate_text = " ".join([corrected_question, *candidate_tokens])
+    scores = _score_intents(candidate_text, candidate_tokens)
+    for excluded in excluded_intents:
+        if excluded in scores:
+            scores[excluded] -= 100
+
+    best_intent = max(scores, key=scores.get)
+    intent = best_intent if scores[best_intent] > 0 else base.intent
+    if intent_text in allowed_intents and intent_text not in excluded_intents:
+        suggested_score = scores.get(intent_text, 0)
+        current_score = scores.get(intent, 0)
+        if suggested_score >= max(1, current_score - 2):
+            intent = intent_text
+
+    suggested_policy = suggestion.get("is_policy_question")
+    is_policy_question = bool(
+        base.is_policy_question
+        or detect_policy_question(candidate_text, intent)
+        or (suggested_policy is True and (
+            intent == "regulamente"
+            or bool({"regulament", "metodologie", "procedura", "conditii", "eligibil", "portofoliu"} & set(candidate_tokens))
+        ))
+    )
+    page_type_preferences = build_page_type_preferences(intent, is_policy_question, tokens)
+    expanded_tokens = list(expand_query_tokens(tokens, intent, is_policy_question))
+    for token in keyword_tokens:
+        if token not in expanded_tokens:
+            expanded_tokens.append(token)
+
+    corrections = list(base.corrections)
+    if corrected_question != base.corrected_question:
+        corrections.append("ollama_query_rewrite")
+    if keyword_tokens:
+        corrections.append("ollama_keywords")
+    if excluded_intents:
+        corrections.append("ollama_excluded:" + ",".join(sorted(excluded_intents)))
+
+    return QueryAnalysis(
+        original_question=question,
+        normalized_question=normalize(question),
+        corrected_question=corrected_question,
+        tokens=tokens,
+        expanded_tokens=tuple(dict.fromkeys(expanded_tokens)),
+        intent=intent,
+        is_policy_question=is_policy_question,
+        page_type_preferences=page_type_preferences,
+        corrections=tuple(dict.fromkeys(corrections)),
+    )
+
+
+def analyze_query(question: str) -> QueryAnalysis:
+    base = analyze_query_deterministic(question)
+    if not query_analysis_enabled():
+        return base
+    return merge_ollama_query_analysis(question, base, request_ollama_query_analysis(question, base))
+
+
 def _counter(tokens: Iterable[str]) -> Counter:
     return Counter(tokens)
 
@@ -334,6 +593,22 @@ def _url_slug_tokens(url: str) -> list[str]:
 
 def _contains_any(text: str, terms: Iterable[str]) -> bool:
     return any(term in text for term in terms)
+
+
+def _contains_token(text: str, token: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(token)}\b", text))
+
+
+def _current_academic_year_start() -> int:
+    now = datetime.now()
+    return now.year if now.month >= 8 else now.year - 1
+
+
+def _academic_year_starts(text: str) -> set[int]:
+    starts: set[int] = set()
+    for match in re.finditer(r"\b(20\d{2})\s*[-–—]\s*(?:20)?(\d{2})\b", text):
+        starts.add(int(match.group(1)))
+    return starts
 
 
 def _is_document_url(url: str) -> bool:
@@ -494,6 +769,20 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
     score = 0.0
     query_years = {token for token in analysis.tokens if re.fullmatch(r"20\d{2}", token)}
     query_tokens = set(analysis.tokens)
+    expanded_tokens = set(analysis.expanded_tokens)
+    title_url_specific_matches = {
+        token for token in expanded_tokens
+        if len(token) >= 4
+        and token not in {"student", "studenti", "uvt", "informatii", "informatie"}
+        and _contains_token(title_url, token)
+    }
+    if len(title_url_specific_matches) >= 2:
+        score += min(64, 18 * len(title_url_specific_matches))
+        signals.append(f"title_url_specific:{len(title_url_specific_matches)}")
+    elif title_url_specific_matches & query_tokens:
+        score += 10
+        signals.append("title_url_specific:1")
+
     is_exam_model_page = _contains_any(title_url, ("model-subiecte", "model subiecte", "subiecte_"))
     if is_exam_model_page and not {"model", "subiect", "subiecte", "proba"} & query_tokens:
         score -= 70
@@ -511,6 +800,20 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
         if any(year in chunk["_text_norm"][:2200] for year in query_years):
             score += 10
             signals.append("year:content")
+    else:
+        academic_years = _academic_year_starts(f"{title_url} {chunk['_text_norm'][:1600]}")
+        if academic_years:
+            latest_year = max(academic_years)
+            current_year = _current_academic_year_start()
+            if latest_year == current_year:
+                score += 34
+                signals.append("current_academic_year")
+            elif latest_year == current_year - 1:
+                score += 8
+                signals.append("recent_academic_year")
+            elif latest_year < current_year - 1:
+                score -= min(42, 18 * (current_year - latest_year - 1))
+                signals.append("stale_academic_year")
 
     page_hints = PAGE_HINTS.get(analysis.intent, ())
     if analysis.intent == "studenti":
@@ -542,6 +845,18 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
             score += 18
             signals.append("contact_path")
     elif analysis.intent == "admitere":
+        if not query_years and re.search(r"/20\d{2}/\d{2}/\d{2}/", path):
+            score -= 52
+            signals.append("admission_dated_news_penalty")
+        if "procesul-de-admitere" in path:
+            score += 36
+            signals.append("admission_process_path")
+        if "cum-sa-aplici" in path or "preinscriere" in path:
+            score += 18
+            signals.append("admission_application_path")
+        if "admitere.uvt.ro" in title_url and not re.search(r"/20\d{2}/\d{2}/\d{2}/", path):
+            score += 12
+            signals.append("admission_official_portal")
         if path in {"/admitere", "/admitere-licenta", "/admitere-masterat"}:
             score += 28
             signals.append("admission_path")
@@ -609,10 +924,10 @@ def _faculty_score(chunk: dict, analysis: QueryAnalysis, selected_faculty: str) 
 
     if selected_faculty == GENERAL_FACULTY_ID:
         if faculty_id == GENERAL_FACULTY_ID:
-            score += 18
+            score += 34 if analysis.is_policy_question else 18
             signals.append("faculty:uvt")
         elif analysis.is_policy_question and is_policy_document:
-            score += 18
+            score += 8
             signals.append("faculty:hosted_policy")
         elif analysis.is_policy_question:
             score -= 14
@@ -642,6 +957,7 @@ def _policy_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str
         return 0.0, []
 
     page_type = str(chunk.get("page_type") or "general")
+    title_norm = chunk["_title_norm"]
     combined = f"{chunk['_title_norm']} {chunk['_url_norm']} {chunk['_text_norm']}"
     topic_head = f"{chunk['_title_norm']} {chunk['_url_norm']} {chunk['_text_norm'][:1800]}"
     query_tokens = set(analysis.expanded_tokens)
@@ -663,6 +979,10 @@ def _policy_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str
         if _contains_any(topic_head, SCHOLARSHIP_TERMS):
             score += 26
             signals.append("policy:scholarship_topic")
+            faculty_id = str(chunk.get("faculty_id") or GENERAL_FACULTY_ID)
+            if faculty_id == GENERAL_FACULTY_ID and "metodologie" in f"{title_norm} {chunk['_url_norm']}":
+                score += 24
+                signals.append("policy:uvt_scholarship_methodology")
         else:
             score -= 20
             signals.append("policy:topic_missing")
@@ -676,7 +996,31 @@ def _policy_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str
             score -= 18
             signals.append("policy:cumulation_missing")
 
-    title_norm = chunk["_title_norm"]
+    volunteering_question = is_volunteering_credit_query(analysis.corrected_question, query_tokens)
+    if volunteering_question:
+        has_volunteering_topic = _contains_any(topic_head, VOLUNTEERING_TERMS)
+        has_credit_topic = _contains_any(topic_head, VOLUNTEERING_CREDIT_TERMS)
+        has_submission_topic = _contains_any(topic_head, SUBMISSION_TERMS)
+        has_portfolio_contents = _contains_any(topic_head, ("raport", "adeverinta", "evaluare", "formular"))
+
+        if has_volunteering_topic and has_credit_topic:
+            score += 36
+            signals.append("policy:volunteering_credit_topic")
+        else:
+            score -= 18
+            signals.append("policy:volunteering_credit_missing")
+
+        if has_submission_topic:
+            score += 42
+            signals.append("policy:submission_process")
+        else:
+            score -= 30
+            signals.append("policy:submission_missing")
+
+        if has_portfolio_contents:
+            score += 28
+            signals.append("policy:portfolio_contents")
+
     if title_norm in {"regulamente - uvt", "legislatie - uvt"} and not _contains_any(combined, SCHOLARSHIP_TERMS + CUMULATION_TERMS):
         score -= 36
         signals.append("policy:generic_regulation_penalty")
@@ -729,6 +1073,20 @@ def _prefer_policy_candidates(scored: list[dict], analysis: QueryAnalysis) -> li
     if not analysis.is_policy_question:
         return scored
 
+    if is_volunteering_credit_query(analysis.corrected_question, analysis.expanded_tokens):
+        volunteering_candidates = [
+            chunk for chunk in scored
+            if "policy:volunteering_credit_topic" in chunk.get("match_signals", [])
+        ]
+        submission_candidates = [
+            chunk for chunk in volunteering_candidates
+            if "policy:submission_process" in chunk.get("match_signals", [])
+        ]
+        if submission_candidates:
+            return submission_candidates
+        if volunteering_candidates:
+            scored = volunteering_candidates
+
     if {"burse", "bursa", "burselor"} & set(analysis.expanded_tokens):
         topic_candidates = [
             chunk for chunk in scored
@@ -748,6 +1106,24 @@ def _prefer_policy_candidates(scored: list[dict], analysis: QueryAnalysis) -> li
         or any(signal.startswith("policy:institutional") for signal in chunk.get("match_signals", []))
     ]
     return preferred if preferred else scored
+
+
+def _prefer_selected_scope_candidates(scored: list[dict], selected_faculty: str) -> list[dict]:
+    if selected_faculty != GENERAL_FACULTY_ID or not scored:
+        return scored
+
+    central_candidates = [
+        chunk for chunk in scored
+        if str(chunk.get("faculty_id") or GENERAL_FACULTY_ID) == GENERAL_FACULTY_ID
+    ]
+    if not central_candidates:
+        return scored
+
+    best_score = max(float(chunk.get("retrieval_score", 0) or 0) for chunk in scored)
+    best_central_score = max(float(chunk.get("retrieval_score", 0) or 0) for chunk in central_candidates)
+    if best_central_score >= best_score * 0.72:
+        return central_candidates
+    return scored
 
 
 def select_diverse_chunks(scored_chunks: list[dict], top_k: int, max_chunks_per_url: int = 1) -> list[dict]:
@@ -872,6 +1248,7 @@ def _score_semantic_candidates(
         scored.append(candidate)
 
     scored = _prefer_policy_candidates(scored, analysis)
+    scored = _prefer_selected_scope_candidates(scored, selected_faculty)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
     return scored
 
@@ -899,6 +1276,7 @@ def _score_lexical_backfill_candidates(
         scored.append(candidate)
 
     scored = _prefer_policy_candidates(scored, analysis)
+    scored = _prefer_selected_scope_candidates(scored, selected_faculty)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
     return scored[:limit]
 
@@ -926,22 +1304,28 @@ def _merge_scored_candidates(candidate_groups: list[list[dict]]) -> list[dict]:
 
 def rank_vector_index(question: str, index_document: dict, selected_faculty: str, top_k: int = 6) -> dict:
     analysis = analyze_query(question)
-    prepared_index = prepare_index(index_document)
     semantic_hits = _retrieve_semantic_candidates(question, analysis, selected_faculty)
     scored = _score_semantic_candidates(
         semantic_hits,
         analysis,
         selected_faculty,
-        prepared_index.get("idf", {}),
+        {},
     )
-    lexical_backfill = _score_lexical_backfill_candidates(
-        prepared_index.get("chunks", []),
-        analysis,
-        selected_faculty,
-        prepared_index.get("idf", {}),
+    if VECTOR_LEXICAL_BACKFILL_ENABLED and not scored:
+        prepared_index = prepare_index(index_document)
+        lexical_backfill = _score_lexical_backfill_candidates(
+            prepared_index.get("chunks", []),
+            analysis,
+            selected_faculty,
+            prepared_index.get("idf", {}),
+        )
+        scored = _merge_scored_candidates([scored, lexical_backfill])
+
+    chunks = select_diverse_chunks(
+        scored,
+        top_k=top_k,
+        max_chunks_per_url=2 if analysis.is_policy_question else 1,
     )
-    scored = _merge_scored_candidates([scored, lexical_backfill])
-    chunks = select_diverse_chunks(scored, top_k=top_k)
     confidence = compute_confidence(chunks, analysis)
 
     return {
@@ -968,8 +1352,13 @@ def rank_lexical_index(question: str, index_document: dict, selected_faculty: st
             scored.append(candidate)
 
     scored = _prefer_policy_candidates(scored, analysis)
+    scored = _prefer_selected_scope_candidates(scored, selected_faculty)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
-    chunks = select_diverse_chunks(scored, top_k=top_k)
+    chunks = select_diverse_chunks(
+        scored,
+        top_k=top_k,
+        max_chunks_per_url=2 if analysis.is_policy_question else 1,
+    )
     confidence = compute_confidence(chunks, analysis)
 
     return {

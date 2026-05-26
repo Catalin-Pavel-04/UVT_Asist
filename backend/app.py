@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
+import shutil
+import sys
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,12 +19,12 @@ from flask_cors import CORS
 
 from faculties import FACULTIES
 from ollama_client import ask_ollama, get_ollama_status
-from page_index import build_chunk_entries_from_pages, get_index_status, load_index, normalize_url
+from page_index import build_chunk_entries_from_pages, get_index_status, load_index, metadata_index_document, normalize_url
 from prompts import SYSTEM_PROMPT, build_user_prompt
 from retriever import (
     compute_confidence,
     normalize as normalize_retrieval_text,
-    prepare_index,
+    query_analysis_enabled,
     rank_index,
     rank_runtime_chunks,
 )
@@ -34,13 +38,64 @@ FACULTY_MAP = {faculty["id"]: faculty for faculty in FACULTIES}
 GENERAL_FACULTY_ID = "uvt"
 MAX_HISTORY_MESSAGES = 10
 MAX_HISTORY_CHARS = 500
-LIVE_VERIFY_LIMIT = max(1, int(os.getenv("LIVE_VERIFY_LIMIT", "2")))
+
+
+def env_bool(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+MAX_QUESTION_CHARS = max(120, int(os.getenv("MAX_QUESTION_CHARS", "1200")))
+MIN_GENERATION_CONFIDENCE_SCORE = max(0, int(os.getenv("MIN_GENERATION_CONFIDENCE_SCORE", "35")))
+LIVE_VERIFY_ENABLED = env_bool("LIVE_VERIFY_ENABLED", "true")
+LIVE_VERIFY_LIMIT = max(0, int(os.getenv("LIVE_VERIFY_LIMIT", "2")))
 RESPONSE_CACHE_TTL = max(60, int(os.getenv("CHAT_RESPONSE_CACHE_TTL", "300")))
+MAX_FEEDBACK_TEXT_CHARS = max(200, int(os.getenv("MAX_FEEDBACK_TEXT_CHARS", "4000")))
+MAX_FEEDBACK_SOURCES = max(1, int(os.getenv("MAX_FEEDBACK_SOURCES", "6")))
+STARTUP_REBUILD_INDEX = env_bool("STARTUP_REBUILD_INDEX", "false")
+STARTUP_REBUILD_FULL_SITE = env_bool("STARTUP_REBUILD_FULL_SITE", "true")
+STARTUP_USE_SITEMAPS = env_bool("STARTUP_USE_SITEMAPS", "true")
+STARTUP_SKIP_VECTOR_INDEX = env_bool("STARTUP_SKIP_VECTOR_INDEX", "false")
+STARTUP_MAX_URLS_PER_FACULTY = max(0, int(os.getenv("STARTUP_MAX_URLS_PER_FACULTY", "0")))
+STARTUP_MAX_DEPTH = max(0, int(os.getenv("STARTUP_MAX_DEPTH", "5")))
+STARTUP_MAX_LINKS_PER_PAGE = max(10, int(os.getenv("STARTUP_MAX_LINKS_PER_PAGE", "150")))
+STARTUP_FETCH_WORKERS = max(1, int(os.getenv("STARTUP_FETCH_WORKERS", "12")))
+STARTUP_TERMINAL_PROGRESS = env_bool("STARTUP_TERMINAL_PROGRESS", "true")
 
 LOG_FILE = Path(__file__).with_name("feedback_log.jsonl")
 FEEDBACK_LOCK = threading.Lock()
 RESPONSE_CACHE_LOCK = threading.Lock()
 RESPONSE_CACHE: dict[str, dict] = {}
+INDEXING_STATE_LOCK = threading.Lock()
+INDEXING_STATE: dict = {
+    "enabled": STARTUP_REBUILD_INDEX,
+    "running": False,
+    "ready": True,
+    "phase": "idle",
+    "message": "Indexarea de startup nu ruleaza.",
+    "progress": 0,
+    "started_at": None,
+    "finished_at": None,
+    "error": "",
+    "current_faculty": "",
+    "processed_faculties": 0,
+    "total_faculties": len(FACULTIES),
+    "discovered_urls": 0,
+    "fetched_pages": 0,
+    "page_count": 0,
+    "chunk_count": 0,
+    "embedded_chunks": 0,
+    "total_chunks": 0,
+    "error_count": 0,
+}
+TERMINAL_PROGRESS_LOCK = threading.Lock()
+TERMINAL_PROGRESS_STATE = {
+    "last_rendered_at": 0.0,
+    "last_progress": -1,
+    "last_phase": "",
+    "line_length": 0,
+}
+TERMINAL_PROGRESS_WIDTH = 20
+TERMINAL_PROGRESS_MIN_INTERVAL = 0.35
 
 FACULTY_EXTRA_ALIASES = {
     "info": {"fmi", "mate-info", "mate info", "fac de info", "facultatea de info", "informatica"},
@@ -95,15 +150,45 @@ class ChatRequest:
     history: list[dict]
 
 
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def set_indexing_state(**updates) -> dict:
+    with INDEXING_STATE_LOCK:
+        INDEXING_STATE.update(updates)
+        return copy.deepcopy(INDEXING_STATE)
+
+
+def get_indexing_state() -> dict:
+    with INDEXING_STATE_LOCK:
+        return copy.deepcopy(INDEXING_STATE)
+
+
+def indexing_blocks_chat() -> bool:
+    return bool(get_indexing_state().get("running"))
+
+
 @app.get("/health")
 def health():
     ollama_status = get_ollama_status()
     index_status = get_index_status()
     vector_status = get_vector_index_status()
+    indexing_status = get_indexing_state()
     status_reasons: list[str] = []
+
+    if indexing_status.get("running"):
+        status_reasons.append("Startup index rebuild is still running.")
+    elif indexing_status.get("error"):
+        status_reasons.append(f"Startup index rebuild failed: {indexing_status['error']}")
 
     if not ollama_status.get("available"):
         status_reasons.append("Ollama is unavailable.")
+    else:
+        if not ollama_status.get("generation_model_available"):
+            status_reasons.append("Configured Ollama generation model is not installed.")
+        if not ollama_status.get("embedding_model_available"):
+            status_reasons.append("Configured Ollama embedding model is not installed.")
     if not index_status.get("exists") or not index_status.get("chunk_count"):
         status_reasons.append("JSON index is missing or empty.")
     if not vector_status.get("available") or not vector_status.get("points_count"):
@@ -112,14 +197,47 @@ def health():
         status_reasons.append("Qdrant point count does not match the JSON index chunk count.")
 
     status = "ok" if not status_reasons else "degraded"
-    retrieval_mode = "qdrant-vector-rag" if not status_reasons or vector_status.get("available") else "local-json-lexical-fallback"
+    vector_ready = bool(
+        ollama_status.get("available")
+        and ollama_status.get("embedding_model_available")
+        and vector_status.get("available")
+        and vector_status.get("points_count")
+    )
+    retrieval_mode = "qdrant-vector-rag" if vector_ready else "local-json-lexical-fallback"
 
     return jsonify({
         "status": status,
         "status_reasons": status_reasons,
+        "ready": status == "ok" and not indexing_status.get("running"),
+        "checks": {
+            "ollama": bool(ollama_status.get("available")),
+            "generation_model": bool(ollama_status.get("generation_model_available")),
+            "embedding_model": bool(ollama_status.get("embedding_model_available")),
+            "json_index": bool(index_status.get("exists") and index_status.get("chunk_count")),
+            "qdrant_index": bool(vector_status.get("available") and vector_status.get("points_count")),
+            "index_vector_count_match": bool(
+                index_status.get("chunk_count")
+                and vector_status.get("points_count") == index_status.get("chunk_count")
+            ),
+        },
         "llm_provider": "ollama",
         "embedding_provider": "ollama",
+        "ollama_query_analysis_enabled": query_analysis_enabled(),
         "retrieval_mode": retrieval_mode,
+        "live_verification_enabled": bool(LIVE_VERIFY_ENABLED and LIVE_VERIFY_LIMIT > 0),
+        "live_verify_limit": LIVE_VERIFY_LIMIT,
+        "startup_indexing": {
+            "enabled": STARTUP_REBUILD_INDEX,
+            "full_site": STARTUP_REBUILD_FULL_SITE,
+            "use_sitemaps": STARTUP_USE_SITEMAPS,
+            "skip_vector_index": STARTUP_SKIP_VECTOR_INDEX,
+            "max_urls_per_faculty": STARTUP_MAX_URLS_PER_FACULTY,
+            "max_depth": STARTUP_MAX_DEPTH,
+            "max_links_per_page": STARTUP_MAX_LINKS_PER_PAGE,
+            "fetch_workers": STARTUP_FETCH_WORKERS,
+            "terminal_progress": STARTUP_TERMINAL_PROGRESS,
+        },
+        "indexing": indexing_status,
         "ollama": ollama_status,
         "index": index_status,
         "vector_index": vector_status,
@@ -136,6 +254,11 @@ def faculties():
             for faculty in FACULTIES
         ]
     })
+
+
+@app.get("/indexing/status")
+def indexing_status():
+    return jsonify({"indexing": get_indexing_state()})
 
 
 def normalize_match_text(text: str) -> str:
@@ -171,10 +294,19 @@ def build_faculty_aliases() -> dict[str, set[str]]:
 FACULTY_ALIASES = build_faculty_aliases()
 
 
-def parse_chat_request(payload: dict) -> ChatRequest:
+def normalize_payload(payload) -> dict:
+    return payload if isinstance(payload, dict) else {}
+
+
+def compact_text(value, max_chars: int) -> str:
+    return " ".join(str(value or "").split()).strip()[:max_chars]
+
+
+def parse_chat_request(payload) -> ChatRequest:
+    payload = normalize_payload(payload)
     return ChatRequest(
-        question=str(payload.get("question") or "").strip(),
-        requested_faculty_id=str(payload.get("faculty_id") or GENERAL_FACULTY_ID).strip(),
+        question=compact_text(payload.get("question"), MAX_QUESTION_CHARS),
+        requested_faculty_id=compact_text(payload.get("faculty_id") or GENERAL_FACULTY_ID, 64),
         history=normalize_history(payload.get("history")),
     )
 
@@ -192,9 +324,9 @@ def normalize_history(history) -> list[dict]:
         if role not in {"user", "assistant"}:
             continue
 
-        content = " ".join(str(item.get("content", "")).split()).strip()
+        content = compact_text(item.get("content"), MAX_HISTORY_CHARS)
         if content:
-            normalized_history.append({"role": role, "content": content[:MAX_HISTORY_CHARS]})
+            normalized_history.append({"role": role, "content": content})
 
     return normalized_history
 
@@ -276,13 +408,13 @@ def get_cached_response(cache_key: str) -> dict | None:
     with RESPONSE_CACHE_LOCK:
         cached = RESPONSE_CACHE.get(cache_key)
         if cached and now - cached["timestamp"] < RESPONSE_CACHE_TTL:
-            return cached["response"]
+            return copy.deepcopy(cached["response"])
     return None
 
 
 def set_cached_response(cache_key: str, response_payload: dict) -> None:
     with RESPONSE_CACHE_LOCK:
-        RESPONSE_CACHE[cache_key] = {"timestamp": time.time(), "response": response_payload}
+        RESPONSE_CACHE[cache_key] = {"timestamp": time.time(), "response": copy.deepcopy(response_payload)}
 
 
 def merge_ranked_chunks(primary_chunks: list[dict], verified_chunks: list[dict]) -> list[dict]:
@@ -325,20 +457,264 @@ def unique_sources_from_chunks(chunks: list[dict]) -> list[dict]:
     sources: list[dict] = []
 
     for chunk in chunks:
-        url = chunk.get("url", "")
-        if not url or url in seen:
+        url = str(chunk.get("url", "")).strip()
+        normalized_url = normalize_url(url)
+        if not url or not normalized_url or normalized_url in seen:
             continue
 
         sources.append({
-            "title": chunk.get("title", url),
+            "title": compact_text(chunk.get("title") or url, 220),
             "url": url,
             "faculty_id": chunk.get("faculty_id", GENERAL_FACULTY_ID),
             "page_type": chunk.get("page_type", "general"),
             "verified": bool(chunk.get("verified")),
         })
-        seen.add(url)
+        seen.add(normalized_url)
 
     return sources
+
+
+POLICY_EVIDENCE_MARKERS = (
+    "are dreptul",
+    "adeverinta",
+    "conditie",
+    "conditii",
+    "continutul",
+    "copii aferente",
+    "depus",
+    "depunerea",
+    "doar",
+    "dreptul",
+    "eligibil",
+    "evaluare",
+    "except",
+    "formular",
+    "format electronic",
+    "interzis",
+    "nu poate",
+    "nu se",
+    "numai",
+    "obligator",
+    "poate",
+    "portofoliu",
+    "pot beneficia",
+    "pot fi",
+    "raport de activitate",
+    "se acorda",
+    "se poate realiza",
+    "simultan",
+    "trebuie",
+)
+
+NUMBER_ALIASES = {
+    "1": ("1", "un", "una"),
+    "2": ("2", "doi", "doua"),
+    "3": ("3", "trei"),
+}
+
+INCOMPLETE_UNIT_ENDINGS = {
+    "a",
+    "ai",
+    "al",
+    "ale",
+    "ca",
+    "cu",
+    "de",
+    "din",
+    "in",
+    "la",
+    "pe",
+    "pentru",
+    "prin",
+    "sau",
+    "sa",
+    "să",
+}
+
+INCOMPLETE_UNIT_STARTS = {
+    "a",
+    "ale",
+    "al",
+    "care",
+    "ce",
+    "cu",
+    "de",
+    "din",
+    "iar",
+    "la",
+    "pe",
+    "si",
+    "și",
+}
+
+
+def split_evidence_units(text: str) -> list[str]:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return []
+
+    cleaned = re.sub(r"\balin\.\s*\((\d+)\)", r"alin \1", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\balin\s*\((\d+)\)", r"alin \1", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\balin\.\s*(\d+)", r"alin \1", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bart\.", "art", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\blit\.", "lit", cleaned, flags=re.IGNORECASE)
+    prepared = re.sub(r"\s+(\(\d+\))\s+", r" || \1 ", cleaned)
+    sentence_parts = re.split(r"\s*\|\|\s*|(?<=[.!?])\s+(?=[(A-Z0-9])", prepared)
+    units: list[str] = []
+
+    for sentence in sentence_parts:
+        sentence = re.sub(r"^\(\d+\)\s*", "", sentence).strip(" ;:-")
+        if not sentence:
+            continue
+        clause_parts = re.split(r"\s*;\s*", sentence)
+        for clause in clause_parts:
+            clause = re.sub(r"^\(\d+\)\s*", "", clause).strip(" ;:-")
+            if len(clause) >= 28:
+                units.append(clause)
+
+    return units
+
+
+def token_matches_unit(token: str, normalized_unit: str) -> bool:
+    aliases = NUMBER_ALIASES.get(token, (token,))
+    if any(re.search(rf"\b{re.escape(alias)}\b", normalized_unit) for alias in aliases):
+        return True
+    if len(token) >= 4:
+        root_size = 5 if len(token) > 5 else 4
+        if token[:root_size] in normalized_unit:
+            return True
+    return False
+
+
+def query_number_matches_unit(query_tokens: list[str], normalized_unit: str) -> bool:
+    for token in query_tokens:
+        if token in NUMBER_ALIASES and token_matches_unit(token, normalized_unit):
+            return True
+    return False
+
+
+def has_query_number(query_tokens: list[str]) -> bool:
+    return any(token in NUMBER_ALIASES for token in query_tokens)
+
+
+def has_aggregation_signal(normalized_unit: str) -> bool:
+    return any(marker in normalized_unit for marker in ("cumul", "simultan", "aceeasi categorie", "acelasi tip"))
+
+
+def has_negation_or_restriction(normalized_unit: str) -> bool:
+    return any(marker in normalized_unit for marker in ("nu poate", "nu se", "numai", "doar", "interzis"))
+
+
+def unit_contains_answer_signal(normalized_unit: str) -> bool:
+    return any(marker in normalized_unit for marker in POLICY_EVIDENCE_MARKERS) or has_negation_or_restriction(normalized_unit)
+
+
+def looks_incomplete_evidence_unit(unit: str) -> bool:
+    stripped = unit.strip()
+    if not stripped:
+        return False
+
+    words = normalize_retrieval_text(stripped).split()
+    if not words:
+        return False
+    starts_mid_sentence = stripped[0].islower() and words[0] in INCOMPLETE_UNIT_STARTS
+    if starts_mid_sentence:
+        return True
+    if stripped[-1] in ".!?)":
+        return False
+    return starts_mid_sentence or words[-1] in INCOMPLETE_UNIT_ENDINGS
+
+
+def should_keep_scored_unit(score: int, normalized_unit: str, query_tokens: list[str]) -> bool:
+    if score < 15:
+        return False
+    if looks_incomplete_evidence_unit(normalized_unit):
+        return False
+    if re.match(r"^anexa\s+\d+\b", normalized_unit):
+        return False
+    if has_query_number(query_tokens) and not (
+        query_number_matches_unit(query_tokens, normalized_unit)
+        or has_aggregation_signal(normalized_unit)
+        or has_negation_or_restriction(normalized_unit)
+    ):
+        return False
+    return unit_contains_answer_signal(normalized_unit)
+
+
+def score_evidence_unit(unit: str, analysis: dict) -> int:
+    normalized_unit = normalize_retrieval_text(unit)
+    query_tokens = list(dict.fromkeys([
+        *(analysis.get("tokens") or []),
+        *(analysis.get("expanded_tokens") or []),
+    ]))
+    token_score = sum(1 for token in query_tokens if token_matches_unit(str(token), normalized_unit))
+    marker_score = sum(1 for marker in POLICY_EVIDENCE_MARKERS if marker in normalized_unit)
+
+    score = token_score * 8 + marker_score * 5
+    if analysis.get("is_policy_question") and marker_score:
+        score += 12
+    if token_score >= 2 and marker_score:
+        score += 10
+    if has_query_number(query_tokens):
+        if query_number_matches_unit(query_tokens, normalized_unit):
+            score += 24
+        elif has_aggregation_signal(normalized_unit):
+            score += 12
+        else:
+            score -= 24
+    return score
+
+
+def trim_evidence_unit(unit: str, max_words: int = 40) -> str:
+    words = unit.split()
+    if len(words) <= max_words:
+        return unit.rstrip(".")
+    return " ".join(words[:max_words]).rstrip(".,;:") + "..."
+
+
+def build_extractive_evidence_answer(retrieval_result: dict) -> str | None:
+    analysis = retrieval_result.get("analysis", {})
+    if not analysis.get("is_policy_question"):
+        return None
+
+    query_tokens = list(dict.fromkeys([
+        *(analysis.get("tokens") or []),
+        *(analysis.get("expanded_tokens") or []),
+    ]))
+    candidates: list[dict] = []
+    for source_order, chunk in enumerate(retrieval_result.get("chunks", [])[:4]):
+        title = str(chunk.get("title") or chunk.get("url") or "sursa oficiala")
+        url = str(chunk.get("url") or "")
+        for unit_order, unit in enumerate(split_evidence_units(chunk.get("chunk_text", ""))):
+            normalized_unit = normalize_retrieval_text(unit)
+            score = score_evidence_unit(unit, analysis)
+            if should_keep_scored_unit(score, normalized_unit, query_tokens):
+                candidates.append({
+                    "score": score + max(0, 4 - source_order),
+                    "source_order": source_order,
+                    "unit_order": unit_order,
+                    "unit": unit,
+                    "title": title,
+                    "url": url,
+                })
+
+    if not candidates:
+        return None
+
+    best_source = max(candidates, key=lambda item: item["score"])
+    selected = [
+        candidate for candidate in candidates
+        if candidate["url"] == best_source["url"]
+    ]
+    selected.sort(key=lambda item: (-item["score"], item["unit_order"]))
+    selected = sorted(selected[:3], key=lambda item: item["unit_order"])
+    facts = [trim_evidence_unit(item["unit"]) for item in selected]
+
+    return (
+        "Din sursa oficiala reiese ca:\n"
+        + "\n".join(f"- {fact}." for fact in facts)
+        + f"\nSursa: \"{best_source['title']}\" - {best_source['url']}."
+    )
 
 
 def build_local_fallback_answer(retrieval_result: dict) -> str:
@@ -362,6 +738,10 @@ def build_local_fallback_answer(retrieval_result: dict) -> str:
             "Sursele apropiate sunt afisate mai jos, dar nu sustin un raspuns sigur."
         )
 
+    extractive_answer = build_extractive_evidence_answer(retrieval_result)
+    if extractive_answer:
+        return extractive_answer
+
     if intent == "orar":
         return f"Pentru orar, foloseste pagina oficiala \"{title}\": {url}."
 
@@ -383,24 +763,61 @@ def build_local_fallback_answer(retrieval_result: dict) -> str:
             )
         return f"Pentru structura anului universitar, consulta sursa oficiala \"{title}\": {url}."
 
-    scholarship_question = bool({"burse", "bursa", "burselor"} & expanded_tokens)
-    cumulation_question = bool({"2", "cumulare"} & expanded_tokens)
-    if scholarship_question and cumulation_question:
-        if "nu poate primi doua tipuri de burse simultan din aceeasi categorie" in normalized_chunk:
-            return (
-                "Metodologia indica faptul ca un student nu poate primi doua tipuri de burse simultan "
-                "din aceeasi categorie, dar poate opta pentru bursa cu valoare mai mare sau acordata "
-                f"pe perioada mai lunga. Verifica metodologia oficiala: {url}."
-            )
-        return f"Pentru cumularea burselor, verifica metodologia oficiala \"{title}\": {url}."
-
-    if scholarship_question and "limita de varsta" in normalized_chunk and "35 de ani" in normalized_chunk:
-        return (
-            "Sursa oficiala mentioneaza o limita de varsta de 35 de ani pentru bursa sociala. "
-            f"Verifica metodologia completa in \"{title}\": {url}."
-        )
-
     return f"Cea mai relevanta sursa oficiala gasita este \"{title}\": {url}."
+
+
+def build_deterministic_answer(retrieval_result: dict) -> tuple[str, str] | None:
+    if retrieval_result.get("confidence") == "low":
+        return None
+
+    chunks = retrieval_result.get("chunks", [])
+    if not chunks:
+        return None
+
+    analysis = retrieval_result.get("analysis", {})
+    intent = analysis.get("intent", "general")
+    tokens = set(analysis.get("tokens") or [])
+    expanded_tokens = set(analysis.get("expanded_tokens") or tokens)
+    deterministic_intents = {"orar", "contact", "admitere"}
+
+    if intent in deterministic_intents:
+        return build_local_fallback_answer(retrieval_result), f"deterministic_{intent}"
+
+    if intent == "studenti" and {"cazare", "camin", "camine", "calendar", "structura", "universitar", "an"} & tokens:
+        return build_local_fallback_answer(retrieval_result), "deterministic_student_service"
+
+    if analysis.get("is_policy_question"):
+        extractive_answer = build_extractive_evidence_answer(retrieval_result)
+        if extractive_answer:
+            return extractive_answer, "deterministic_policy"
+
+    return None
+
+
+def build_evidence_profile(retrieval_result: dict, live_verified: bool) -> dict:
+    chunks = retrieval_result.get("chunks", [])
+    confidence = retrieval_result.get("confidence", "low")
+    top_chunk = chunks[0] if chunks else {}
+    unique_urls = {normalize_url(chunk.get("url", "")) for chunk in chunks if chunk.get("url")}
+    verified_urls = {
+        normalize_url(chunk.get("url", ""))
+        for chunk in chunks
+        if chunk.get("url") and chunk.get("verified")
+    }
+
+    return {
+        "answerable": bool(chunks and confidence != "low"),
+        "support_level": confidence,
+        "source_count": len(unique_urls),
+        "verified_source_count": len(verified_urls),
+        "live_verified": bool(live_verified),
+        "top_source": {
+            "title": compact_text(top_chunk.get("title"), 220),
+            "url": top_chunk.get("url", ""),
+            "page_type": top_chunk.get("page_type", "general"),
+            "faculty_id": top_chunk.get("faculty_id", GENERAL_FACULTY_ID),
+        } if top_chunk else None,
+    }
 
 
 def answer_needs_fallback(answer: str) -> bool:
@@ -414,18 +831,20 @@ def live_verify_retrieval(
     retrieval_result: dict,
     index_document: dict,
 ) -> tuple[list[dict], bool]:
+    if not LIVE_VERIFY_ENABLED or LIVE_VERIFY_LIMIT <= 0:
+        return retrieval_result.get("chunks", []), False
+
     top_urls = [chunk.get("url") for chunk in retrieval_result.get("chunks", []) if chunk.get("url")]
     verified_pages = verify_pages(top_urls, max_pages=LIVE_VERIFY_LIMIT)
     if not verified_pages:
         return retrieval_result.get("chunks", []), False
 
     verified_chunks = build_chunk_entries_from_pages(verified_pages, FACULTIES)
-    prepared_index = prepare_index(index_document)
     verified_result = rank_runtime_chunks(
         verified_chunks,
         effective_question,
         faculty_id,
-        idf=prepared_index.get("idf", {}),
+        idf={},
         top_k=4,
     )
     verified_urls = {normalize_url(page.get("url", "")) for page in verified_pages if page.get("url")}
@@ -473,6 +892,7 @@ def build_response_payload(
         "retrieval_backend": retrieval_result.get("retrieval_backend", "unknown"),
         "generation_mode": generation.get("mode", "unknown"),
         "generation_error": generation.get("error", ""),
+        "evidence": build_evidence_profile(retrieval_result, live_verified),
     }
 
 
@@ -516,7 +936,81 @@ def empty_question_payload() -> dict:
             "corrections": [],
         },
         "retrieval_backend": "none",
+        "generation_mode": "none",
+        "generation_error": "",
+        "evidence": {
+            "answerable": False,
+            "support_level": "low",
+            "source_count": 0,
+            "verified_source_count": 0,
+            "live_verified": False,
+            "top_source": None,
+        },
     }
+
+
+def indexing_in_progress_payload(chat_request: ChatRequest) -> dict:
+    faculty = get_faculty(chat_request.requested_faculty_id)
+    indexing_status = get_indexing_state()
+    progress = numeric_confidence_score(indexing_status.get("progress"))
+    message = indexing_status.get("message") or "Indexarea surselor oficiale este in curs."
+
+    return {
+        "answer": (
+            "Indexarea surselor oficiale UVT este in curs. "
+            f"Progres curent: {progress}%. {message} "
+            "Raspunsurile vor fi disponibile dupa finalizarea indexarii."
+        ),
+        "sources": [],
+        "matched_faculty": faculty["name"],
+        "matched_faculty_id": faculty["id"],
+        "confidence": "low",
+        "confidence_score": 0,
+        "confidence_reason": "Indexarea de startup nu s-a finalizat inca.",
+        "live_verified": False,
+        "query_profile": {
+            "intent": "indexing",
+            "policy_question": False,
+            "normalized_question": "",
+            "corrections": [],
+        },
+        "retrieval_backend": "indexing",
+        "generation_mode": "none",
+        "generation_error": "",
+        "indexing": indexing_status,
+        "evidence": {
+            "answerable": False,
+            "support_level": "low",
+            "source_count": 0,
+            "verified_source_count": 0,
+            "live_verified": False,
+            "top_source": None,
+        },
+    }
+
+
+def numeric_confidence_score(value) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def should_skip_generation(retrieval_result: dict) -> bool:
+    return (
+        not retrieval_result.get("chunks")
+        or numeric_confidence_score(retrieval_result.get("confidence_score")) < MIN_GENERATION_CONFIDENCE_SCORE
+    )
+
+
+def vector_runtime_ready(vector_status: dict) -> bool:
+    return bool(vector_status.get("available") and vector_status.get("points_count"))
+
+
+def load_runtime_index_document(vector_status: dict) -> dict:
+    if vector_runtime_ready(vector_status):
+        return metadata_index_document(get_index_status())
+    return load_index()
 
 
 @app.post("/chat")
@@ -524,12 +1018,14 @@ def chat():
     chat_request = parse_chat_request(request.get_json(silent=True) or {})
     if not chat_request.question:
         return jsonify(empty_question_payload())
+    if indexing_blocks_chat():
+        return jsonify(indexing_in_progress_payload(chat_request)), 503
 
     faculty = infer_faculty(chat_request.requested_faculty_id, chat_request.question, chat_request.history)
     effective_question = build_effective_question(chat_request.question, chat_request.history)
     question_is_vague = is_vague_question(chat_request.question)
-    index_document = load_index()
     vector_status = get_vector_index_status()
+    index_document = load_runtime_index_document(vector_status)
 
     cache_key = build_cache_key(
         faculty["id"],
@@ -559,23 +1055,30 @@ def chat():
         )
         refresh_confidence(retrieval_result, merged_chunks)
 
-    prompt = build_user_prompt(
-        chat_request.question,
-        faculty["name"],
-        retrieval_result,
-        history=chat_request.history,
-        question_is_vague=question_is_vague,
-    )
-
-    generation = {"mode": "ollama"}
-    try:
-        answer = ask_ollama(SYSTEM_PROMPT, prompt)
-        if answer_needs_fallback(answer):
-            generation = {"mode": "fallback_bad_generation"}
-            answer = build_local_fallback_answer(retrieval_result)
-    except Exception as exc:
-        generation = {"mode": "fallback_ollama_error", "error": str(exc)}
+    deterministic_answer = build_deterministic_answer(retrieval_result)
+    if deterministic_answer:
+        answer, generation_mode = deterministic_answer
+        generation = {"mode": generation_mode}
+    elif should_skip_generation(retrieval_result):
+        generation = {"mode": "fallback_low_evidence"}
         answer = build_local_fallback_answer(retrieval_result)
+    else:
+        prompt = build_user_prompt(
+            chat_request.question,
+            faculty["name"],
+            retrieval_result,
+            history=chat_request.history,
+            question_is_vague=question_is_vague,
+        )
+        generation = {"mode": "ollama"}
+        try:
+            answer = ask_ollama(SYSTEM_PROMPT, prompt)
+            if answer_needs_fallback(answer):
+                generation = {"mode": "fallback_bad_generation"}
+                answer = build_local_fallback_answer(retrieval_result)
+        except Exception as exc:
+            generation = {"mode": "fallback_ollama_error", "error": compact_text(exc, 800)}
+            answer = build_local_fallback_answer(retrieval_result)
 
     response_payload = build_response_payload(answer, faculty, retrieval_result, live_verified, generation)
     set_cached_response(cache_key, response_payload)
@@ -583,21 +1086,23 @@ def chat():
 
 
 def append_feedback_record(payload: dict) -> None:
+    payload = normalize_payload(payload)
+    sources = unique_sources_from_chunks(payload.get("sources", []))[:MAX_FEEDBACK_SOURCES]
     record = {
         "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "question": payload.get("question"),
-        "selected_faculty": payload.get("faculty_id"),
-        "matched_faculty": payload.get("matched_faculty"),
-        "answer": payload.get("answer"),
-        "confidence": payload.get("confidence"),
+        "question": compact_text(payload.get("question"), MAX_FEEDBACK_TEXT_CHARS),
+        "selected_faculty": compact_text(payload.get("faculty_id"), 64),
+        "matched_faculty": compact_text(payload.get("matched_faculty"), 220),
+        "answer": compact_text(payload.get("answer"), MAX_FEEDBACK_TEXT_CHARS),
+        "confidence": compact_text(payload.get("confidence"), 32),
         "confidence_score": payload.get("confidence_score"),
-        "feedback_vote": payload.get("feedback"),
-        "sources": payload.get("sources", []),
-        "source": payload.get("source", "popup"),
+        "feedback_vote": compact_text(payload.get("feedback"), 32),
+        "sources": sources,
+        "source": compact_text(payload.get("source") or "popup", 64),
         "live_verified": bool(payload.get("live_verified")),
-        "retrieval_backend": payload.get("retrieval_backend"),
-        "generation_mode": payload.get("generation_mode"),
-        "generation_error": payload.get("generation_error"),
+        "retrieval_backend": compact_text(payload.get("retrieval_backend"), 64),
+        "generation_mode": compact_text(payload.get("generation_mode"), 64),
+        "generation_error": compact_text(payload.get("generation_error"), 800),
     }
 
     with FEEDBACK_LOCK:
@@ -615,6 +1120,257 @@ def flask_debug_enabled() -> bool:
     return os.getenv("FLASK_DEBUG", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def should_run_startup_index_rebuild(debug: bool) -> bool:
+    if not STARTUP_REBUILD_INDEX:
+        return False
+    if debug and os.getenv("WERKZEUG_RUN_MAIN") != "true":
+        return False
+    return True
+
+
+def describe_indexing_progress(update: dict) -> str:
+    phase = update.get("phase") or "indexing"
+    faculty_name = update.get("current_faculty") or ""
+
+    if phase == "discovering":
+        message = "Descopar paginile oficiale UVT."
+    elif phase == "fetching":
+        message = "Descarc si extrag continutul din paginile oficiale."
+    elif phase == "chunking":
+        message = "Transform paginile in fragmente pentru cautare."
+    elif phase == "embedding":
+        done = int(update.get("embedded_chunks") or 0)
+        total = int(update.get("total_chunks") or update.get("chunk_count") or 0)
+        message = f"Generez embeddings local cu Ollama ({done}/{total} fragmente)."
+    elif phase == "saving":
+        message = "Salvez indexul JSON si vectorii in Qdrant."
+    elif phase == "ready":
+        message = "Indexarea s-a finalizat."
+    else:
+        message = "Indexarea este in curs."
+
+    if faculty_name and phase in {"discovering", "fetching"}:
+        message = f"{message} Sectiune curenta: {faculty_name}."
+    return message
+
+
+def terminal_progress_enabled() -> bool:
+    return bool(STARTUP_TERMINAL_PROGRESS)
+
+
+def terminal_text(value, max_chars: int) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars - 3]}..."
+
+
+def compact_exception(exc: Exception, max_chars: int) -> str:
+    message = compact_text(exc, max_chars)
+    exception_type = type(exc).__name__
+    if not message:
+        return exception_type
+    return compact_text(f"{exception_type}: {message}", max_chars)
+
+
+def build_terminal_progress_suffix(state: dict) -> str:
+    phase = state.get("phase")
+    if phase in {"discovering", "fetching"}:
+        parts = [
+            f"facultati {int(state.get('processed_faculties') or 0)}/{int(state.get('total_faculties') or len(FACULTIES))}",
+            f"url-uri {int(state.get('discovered_urls') or 0)}",
+            f"pagini {int(state.get('fetched_pages') or 0)}",
+        ]
+        errors = int(state.get("error_count") or 0)
+        if errors:
+            parts.append(f"erori {errors}")
+        return ", ".join(parts)
+
+    if phase == "embedding":
+        done = int(state.get("embedded_chunks") or 0)
+        total = int(state.get("total_chunks") or state.get("chunk_count") or 0)
+        return f"embeddings {done}/{total}"
+
+    if phase in {"chunking", "saving", "ready"}:
+        pages = int(state.get("page_count") or 0)
+        chunks = int(state.get("chunk_count") or 0)
+        errors = int(state.get("error_count") or 0)
+        suffix = f"pagini {pages}, fragmente {chunks}"
+        return f"{suffix}, erori {errors}" if errors else suffix
+
+    return ""
+
+
+def render_terminal_indexing_progress(state: dict, force: bool = False, final: bool = False) -> None:
+    if not terminal_progress_enabled():
+        return
+
+    progress = max(0, min(100, int(state.get("progress", 0) or 0)))
+    phase = terminal_text(state.get("phase") or "indexing", 14)
+    message = terminal_text(state.get("message") or "Indexarea este in curs.", 48)
+    suffix = terminal_text(build_terminal_progress_suffix(state), 38)
+    now = time.time()
+
+    with TERMINAL_PROGRESS_LOCK:
+        should_render = (
+            force
+            or final
+            or progress != TERMINAL_PROGRESS_STATE["last_progress"]
+            or phase != TERMINAL_PROGRESS_STATE["last_phase"]
+            or now - TERMINAL_PROGRESS_STATE["last_rendered_at"] >= TERMINAL_PROGRESS_MIN_INTERVAL
+        )
+        if not should_render:
+            return
+
+        filled = int(TERMINAL_PROGRESS_WIDTH * progress / 100)
+        bar = "#" * filled + "-" * (TERMINAL_PROGRESS_WIDTH - filled)
+        line = f"Indexare UVT [{bar}] {progress:3d}% {phase} | {message}"
+        if suffix:
+            line = f"{line} | {suffix}"
+        terminal_width = shutil.get_terminal_size(fallback=(100, 20)).columns
+        line = terminal_text(line, max(72, terminal_width - 1))
+
+        previous_length = int(TERMINAL_PROGRESS_STATE["line_length"] or 0)
+        padding = " " * max(0, previous_length - len(line))
+        dynamic_terminal = bool(getattr(sys.stdout, "isatty", lambda: False)())
+        prefix = "\r" if dynamic_terminal else ""
+        end = "\n" if final or not dynamic_terminal else ""
+        print(f"{prefix}{line}{padding}", end=end, flush=True)
+
+        TERMINAL_PROGRESS_STATE.update({
+            "last_rendered_at": now,
+            "last_progress": progress,
+            "last_phase": phase,
+            "line_length": 0 if final or not dynamic_terminal else len(line),
+        })
+
+
+def update_startup_index_progress(update: dict) -> None:
+    state_update = {
+        "phase": update.get("phase", "indexing"),
+        "message": describe_indexing_progress(update),
+        "progress": max(0, min(100, int(update.get("progress", 0) or 0))),
+        "current_faculty": update.get("current_faculty", ""),
+    }
+
+    for key in (
+        "processed_faculties",
+        "total_faculties",
+        "discovered_urls",
+        "fetched_pages",
+        "page_count",
+        "chunk_count",
+        "embedded_chunks",
+        "total_chunks",
+        "error_count",
+    ):
+        if key in update:
+            state_update[key] = update[key]
+
+    state = set_indexing_state(**state_update)
+    render_terminal_indexing_progress(state)
+
+
+def run_startup_index_rebuild() -> None:
+    from build_index import build_index
+
+    initial_state = set_indexing_state(
+        enabled=True,
+        running=True,
+        ready=False,
+        phase="starting",
+        message="Pornesc indexarea completa a surselor oficiale UVT.",
+        progress=1,
+        started_at=utc_now_iso(),
+        finished_at=None,
+        error="",
+        current_faculty="",
+        processed_faculties=0,
+        total_faculties=len(FACULTIES),
+        discovered_urls=0,
+        fetched_pages=0,
+        page_count=0,
+        chunk_count=0,
+        embedded_chunks=0,
+        total_chunks=0,
+        error_count=0,
+    )
+
+    max_urls_per_faculty = STARTUP_MAX_URLS_PER_FACULTY
+    max_depth = STARTUP_MAX_DEPTH
+    max_links_per_page = STARTUP_MAX_LINKS_PER_PAGE
+    fetch_workers = STARTUP_FETCH_WORKERS
+
+    if STARTUP_REBUILD_FULL_SITE:
+        if max_urls_per_faculty > 0:
+            max_urls_per_faculty = max(max_urls_per_faculty, 800)
+        max_depth = max(max_depth, 5)
+        max_links_per_page = max(max_links_per_page, 150)
+        fetch_workers = max(fetch_workers, 12)
+
+    print(
+        "Startup index rebuild enabled. "
+        f"full_site={STARTUP_REBUILD_FULL_SITE}, sitemaps={STARTUP_USE_SITEMAPS}, "
+        f"max_urls_per_faculty={max_urls_per_faculty}, max_depth={max_depth}, "
+        f"max_links_per_page={max_links_per_page}, fetch_workers={fetch_workers}, "
+        f"skip_vector_index={STARTUP_SKIP_VECTOR_INDEX}",
+        flush=True,
+    )
+    render_terminal_indexing_progress(initial_state, force=True)
+    started_at = time.time()
+    try:
+        document = build_index(
+            max_urls_per_faculty=max_urls_per_faculty,
+            max_depth=max_depth,
+            max_links_per_page=max_links_per_page,
+            fetch_workers=fetch_workers,
+            use_sitemaps=STARTUP_USE_SITEMAPS,
+            skip_vector_index=STARTUP_SKIP_VECTOR_INDEX,
+            progress=update_startup_index_progress,
+        )
+        elapsed = time.time() - started_at
+        final_state = set_indexing_state(
+            running=False,
+            ready=True,
+            phase="ready",
+            message="Indexarea completa s-a finalizat.",
+            progress=100,
+            finished_at=utc_now_iso(),
+            error="",
+            page_count=document.get("page_count", 0),
+            chunk_count=document.get("chunk_count", 0),
+        )
+        render_terminal_indexing_progress(final_state, force=True, final=True)
+        print(
+            "Startup index rebuild finished. "
+            f"pages={document.get('page_count', 0)}, chunks={document.get('chunk_count', 0)}, "
+            f"elapsed_seconds={elapsed:.1f}",
+            flush=True,
+        )
+    except Exception as exc:
+        error_state = set_indexing_state(
+            running=False,
+            ready=False,
+            phase="error",
+            message="Indexarea de startup a esuat. Verifica serviciile locale si logurile backend.",
+            finished_at=utc_now_iso(),
+            error=compact_exception(exc, 900),
+        )
+        render_terminal_indexing_progress(error_state, force=True, final=True)
+        print("Startup index rebuild failed with traceback:", flush=True)
+        print(traceback.format_exc(), flush=True)
+
+
+def start_startup_index_rebuild(debug: bool) -> None:
+    if not should_run_startup_index_rebuild(debug):
+        set_indexing_state(enabled=STARTUP_REBUILD_INDEX, running=False, ready=True)
+        return
+
+    thread = threading.Thread(target=run_startup_index_rebuild, name="startup-index-rebuild", daemon=True)
+    thread.start()
+
+
 if __name__ == "__main__":
     debug = flask_debug_enabled()
+    start_startup_index_rebuild(debug)
     app.run(host="127.0.0.1", port=5000, debug=debug, use_reloader=debug)

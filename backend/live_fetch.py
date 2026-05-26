@@ -98,6 +98,12 @@ def set_cached(cache: dict, key: str, data) -> None:
         cache[key] = {"timestamp": time.time(), "data": data}
 
 
+def clear_fetch_caches() -> None:
+    with CACHE_LOCK:
+        PAGE_CACHE.clear()
+        LINK_CACHE.clear()
+
+
 def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip()
 

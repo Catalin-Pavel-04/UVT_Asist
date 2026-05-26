@@ -1,12 +1,21 @@
-FACULTIES = [
-    {"id": "uvt", "name": "UVT (general)", "base_urls": ["https://www.uvt.ro/", "https://admitere.uvt.ro/"]},
-    {"id": "arte", "name": "Facultatea de Arte si Design", "base_urls": ["https://arte.uvt.ro/"]},
+﻿FACULTIES = [
+    {
+        "id": "uvt",
+        "name": "UVT (general)",
+        "base_urls": ["https://www.uvt.ro/", "https://admitere.uvt.ro/"]},
+    {
+        "id": "arte", "name":
+        "Facultatea de Arte si Design",
+        "base_urls": ["https://arte.uvt.ro/"]},
     {
         "id": "cbg",
         "name": "Facultatea de Chimie, Biologie, Geografie",
         "base_urls": ["https://cbg.uvt.ro/", "https://www.cbg.uvt.ro/"],
     },
-    {"id": "drept", "name": "Facultatea de Drept", "base_urls": ["https://drept.uvt.ro/"]},
+    {
+        "id": "drept",
+        "name": "Facultatea de Drept",
+        "base_urls": ["https://drept.uvt.ro/"]},
     {
         "id": "feaa",
         "name": "Facultatea de Economie si de Administrare a Afacerilor",
@@ -22,8 +31,14 @@ FACULTIES = [
         "name": "Facultatea de Fizica si Matematica",
         "base_urls": ["https://ffm.uvt.ro/"],
     },
-    {"id": "info", "name": "Facultatea de Informatica", "base_urls": ["https://info.uvt.ro/"]},
-    {"id": "fmt", "name": "Facultatea de Muzica si Teatru", "base_urls": ["https://fmt.uvt.ro/"]},
+    {
+        "id": "info",
+        "name": "Facultatea de Informatica",
+        "base_urls": ["https://info.uvt.ro/"]},
+    {
+        "id": "fmt",
+        "name": "Facultatea de Muzica si Teatru",
+        "base_urls": ["https://fmt.uvt.ro/"]},
     {
         "id": "lift",
         "name": "Facultatea de Litere, Istorie, Filosofie si Teologie",

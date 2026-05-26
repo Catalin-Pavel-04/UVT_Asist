@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import unicodedata
 from datetime import datetime, timezone
@@ -9,9 +10,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 INDEX_PATH = Path(__file__).with_name("data") / "page_index.json"
+INDEX_META_PATH = INDEX_PATH.with_name("page_index.meta.json")
 INDEX_SCHEMA_VERSION = 2
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 180
+MAX_PAGE_TEXT_CHARS = max(4000, int(os.getenv("INDEX_MAX_PAGE_TEXT_CHARS", "24000")))
+MAX_CHUNKS_PER_PAGE = max(1, int(os.getenv("INDEX_MAX_CHUNKS_PER_PAGE", "32")))
+MAX_CHUNK_WORD_CHARS = max(200, int(os.getenv("INDEX_MAX_CHUNK_WORD_CHARS", "1000")))
 
 _INDEX_CACHE: dict | None = None
 _INDEX_MTIME: float | None = None
@@ -67,6 +72,14 @@ def normalize(text: str) -> str:
 
 def normalize_chunk_text(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip()
+
+
+def bound_index_text(value, max_chars: int = MAX_PAGE_TEXT_CHARS) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value[:max_chars]
+    return str(value)[:max_chars]
 
 
 def normalize_host(url: str) -> str:
@@ -133,16 +146,25 @@ def detect_faculty_id(url: str, faculties: list[dict]) -> str:
     return "uvt"
 
 
-def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> list[str]:
-    cleaned = re.sub(r"\s+", " ", str(text)).strip()
+def chunk_text(
+    text: str,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = DEFAULT_CHUNK_OVERLAP,
+    max_chunks: int = MAX_CHUNKS_PER_PAGE,
+) -> list[str]:
+    chunk_size = max(200, int(chunk_size or DEFAULT_CHUNK_SIZE))
+    overlap = max(0, min(int(overlap or 0), chunk_size // 2))
+    max_chunks = max(1, int(max_chunks or MAX_CHUNKS_PER_PAGE))
+    cleaned = re.sub(r"\s+", " ", bound_index_text(text)).strip()
     if not cleaned:
         return []
 
-    words = cleaned.split(" ")
+    max_word_chars = min(MAX_CHUNK_WORD_CHARS, chunk_size)
+    words = [word[:max_word_chars] for word in cleaned.split(" ") if word]
     chunks: list[str] = []
     start = 0
 
-    while start < len(words):
+    while start < len(words) and len(chunks) < max_chunks:
         current_words: list[str] = []
         current_length = 0
         end = start
@@ -159,7 +181,9 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = D
         if not current_words:
             break
 
-        chunks.append(" ".join(current_words))
+        chunk = " ".join(current_words).strip()
+        if chunk:
+            chunks.append(chunk)
         if end >= len(words):
             break
 
@@ -171,7 +195,10 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = D
             if overlap_length > overlap:
                 break
             overlap_start -= 1
-        start = overlap_start if overlap_start < end else end
+        next_start = overlap_start if overlap_start < end else end
+        if next_start <= start:
+            next_start = end
+        start = next_start
 
     return chunks
 
@@ -192,7 +219,7 @@ def build_chunk_entries_from_pages(
 
     for page in pages:
         url = normalize_url(page.get("url", ""))
-        text = str(page.get("text") or "").strip()
+        text = bound_index_text(page.get("text")).strip()
         if not url or not text:
             continue
 
@@ -241,6 +268,50 @@ def _empty_index() -> dict:
         "chunk_count": 0,
         "chunks": [],
     }
+
+
+def index_metadata(document: dict) -> dict:
+    chunks = document.get("chunks", [])
+    return {
+        "path": str(INDEX_PATH),
+        "exists": INDEX_PATH.exists(),
+        "schema_version": document.get("schema_version"),
+        "built_at": document.get("built_at"),
+        "page_count": document.get("page_count") or len({chunk.get("url") for chunk in chunks if chunk.get("url")}),
+        "chunk_count": document.get("chunk_count") or len(chunks),
+        "legacy_format": bool(document.get("legacy_format")),
+    }
+
+
+def metadata_index_document(metadata: dict) -> dict:
+    return {
+        "schema_version": metadata.get("schema_version") or INDEX_SCHEMA_VERSION,
+        "built_at": metadata.get("built_at"),
+        "page_count": metadata.get("page_count") or 0,
+        "chunk_count": metadata.get("chunk_count") or 0,
+        "chunks": [],
+    }
+
+
+def _load_index_metadata() -> dict | None:
+    if not INDEX_META_PATH.exists():
+        return None
+    try:
+        with INDEX_META_PATH.open("r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(metadata, dict):
+        return None
+    metadata["path"] = str(INDEX_PATH)
+    metadata["exists"] = INDEX_PATH.exists()
+    return metadata
+
+
+def save_index_metadata(document: dict) -> None:
+    INDEX_META_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with INDEX_META_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(index_metadata(document), handle, ensure_ascii=False, indent=2)
 
 
 def _normalize_chunk(raw_chunk: dict, fallback_position: int, timestamp: str, faculties: list[dict]) -> dict | None:
@@ -327,13 +398,22 @@ def _normalize_loaded_document(raw_data, file_timestamp: float | None) -> dict:
         chunks.append(chunk)
         page_urls.add(chunk["url"])
 
-    return {
+    normalized_document = {
         "schema_version": int(raw_data.get("schema_version") or INDEX_SCHEMA_VERSION),
         "built_at": built_at,
         "page_count": int(raw_data.get("page_count") or len(page_urls)),
         "chunk_count": len(chunks),
         "chunks": chunks,
     }
+    if raw_data.get("index_error_count"):
+        normalized_document["index_error_count"] = int(raw_data.get("index_error_count") or 0)
+    if isinstance(raw_data.get("index_errors"), list):
+        normalized_document["index_errors"] = raw_data["index_errors"][:100]
+    return normalized_document
+
+
+def normalize_index_document(document: dict) -> dict:
+    return _normalize_loaded_document(document, None)
 
 
 def load_index() -> dict:
@@ -371,25 +451,20 @@ def save_index(document: dict) -> None:
     INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
     with INDEX_PATH.open("w", encoding="utf-8") as handle:
         json.dump(normalized_document, handle, ensure_ascii=False, indent=2)
+    save_index_metadata(normalized_document)
 
     _INDEX_CACHE = normalized_document
     _INDEX_MTIME = INDEX_PATH.stat().st_mtime
 
 
 def get_index_status() -> dict:
-    document = load_index()
-    chunks = document.get("chunks", [])
-    unique_urls = {chunk.get("url") for chunk in chunks if chunk.get("url")}
+    metadata = _load_index_metadata()
+    if metadata is not None:
+        return metadata
 
-    return {
-        "path": str(INDEX_PATH),
-        "exists": INDEX_PATH.exists(),
-        "schema_version": document.get("schema_version"),
-        "built_at": document.get("built_at"),
-        "page_count": document.get("page_count") or len(unique_urls),
-        "chunk_count": document.get("chunk_count") or len(chunks),
-        "legacy_format": bool(document.get("legacy_format")),
-    }
+    document = load_index()
+    save_index_metadata(document)
+    return index_metadata(document)
 
 
 def is_generic_page_title(title: str) -> bool:

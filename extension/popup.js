@@ -1,6 +1,13 @@
 const BACKEND_URL = "http://127.0.0.1:5000";
 const RECENT_QUESTIONS_KEY = "recentQuestions";
 const MAX_HISTORY_MESSAGES = 10;
+const INDEXING_POLL_MS = 2000;
+const REQUEST_TIMEOUT_MS = {
+  health: 6000,
+  faculties: 6000,
+  feedback: 8000,
+  chat: 150000
+};
 
 const FALLBACK_FACULTIES = [
   { id: "uvt", name: "UVT (general)" },
@@ -35,13 +42,20 @@ const refs = {
   statusPanel: document.getElementById("statusPanel"),
   statusTitle: document.getElementById("statusTitle"),
   statusText: document.getElementById("statusText"),
+  indexProgress: document.getElementById("indexProgress"),
+  indexProgressBar: document.getElementById("indexProgressBar"),
+  indexProgressText: document.getElementById("indexProgressText"),
+  indexProgressPercent: document.getElementById("indexProgressPercent"),
   chips: Array.from(document.querySelectorAll(".chip"))
 };
 
 const state = {
   sending: false,
+  indexing: false,
   history: []
 };
+
+let indexingPollId = null;
 
 function storageGet(keys) {
   return chrome.storage.local.get(keys);
@@ -49,6 +63,34 @@ function storageGet(keys) {
 
 function storageSet(value) {
   return chrome.storage.local.set(value);
+}
+
+async function fetchJson(path, options = {}, timeoutMs = REQUEST_TIMEOUT_MS.health) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${BACKEND_URL}${path}`, {
+      ...options,
+      signal: controller.signal
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const message = data?.answer || data?.message || `HTTP ${response.status}`;
+      const httpError = new Error(message);
+      httpError.status = response.status;
+      httpError.payload = data;
+      throw httpError;
+    }
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("Cererea a depasit timpul de asteptare.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function normalizeSources(sources = []) {
@@ -126,18 +168,107 @@ function setStatus(kind, title, text) {
   refs.statusText.textContent = text;
 }
 
-function setBusy(busy) {
-  state.sending = busy;
-  refs.send.disabled = busy;
-  refs.input.disabled = busy;
-  refs.faculty.disabled = busy;
+function updateControlState() {
+  const disabled = state.sending || state.indexing;
+  refs.send.disabled = disabled;
+  refs.input.disabled = disabled;
+  refs.faculty.disabled = disabled;
   refs.chips.forEach((chip) => {
-    chip.disabled = busy;
+    chip.disabled = disabled;
   });
 }
 
+function setBusy(busy) {
+  state.sending = busy;
+  updateControlState();
+}
+
+function setIndexingBusy(busy) {
+  state.indexing = busy;
+  updateControlState();
+}
+
+function clampProgress(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function renderIndexingProgress(indexing) {
+  const running = Boolean(indexing?.running);
+  setIndexingBusy(running);
+
+  if (!running) {
+    refs.indexProgress.hidden = true;
+    refs.indexProgressBar.style.width = "0%";
+    refs.indexProgressPercent.textContent = "0%";
+    return;
+  }
+
+  const progress = clampProgress(indexing.progress);
+  refs.indexProgress.hidden = false;
+  refs.indexProgressBar.style.width = `${progress}%`;
+  refs.indexProgressPercent.textContent = `${progress}%`;
+  refs.indexProgressText.textContent = indexing.message || "Indexare in curs";
+}
+
+function startIndexingPoll() {
+  if (!indexingPollId) {
+    indexingPollId = setInterval(checkIndexingStatus, INDEXING_POLL_MS);
+  }
+}
+
+function stopIndexingPoll() {
+  if (indexingPollId) {
+    clearInterval(indexingPollId);
+    indexingPollId = null;
+  }
+}
+
+function handleIndexingStatus(indexing) {
+  renderIndexingProgress(indexing);
+
+  if (indexing?.running) {
+    setBackendOnline(true);
+    setStatus(
+      "loading",
+      "Indexare surse oficiale",
+      indexing.message || "Backend-ul construieste indexul local complet."
+    );
+    startIndexingPoll();
+    return true;
+  }
+
+  stopIndexingPoll();
+  if (indexing?.error) {
+    setStatus(
+      "warning",
+      "Indexarea a esuat",
+      indexing.error || "Verifica serviciile locale si logurile backend."
+    );
+  }
+  return false;
+}
+
+async function checkIndexingStatus() {
+  try {
+    const data = await fetchJson("/indexing/status", {}, REQUEST_TIMEOUT_MS.health);
+    const stillRunning = handleIndexingStatus(data?.indexing);
+    if (!stillRunning) {
+      await checkBackend();
+    }
+  } catch {
+    stopIndexingPoll();
+    setIndexingBusy(false);
+    setBackendOnline(false);
+    setStatus("error", "Backend indisponibil", "Nu pot citi progresul indexarii de la 127.0.0.1:5000.");
+  }
+}
+
 function resetMeta() {
-  refs.confidenceBadge.textContent = "Confidence --";
+  refs.confidenceBadge.textContent = "Incredere --";
   refs.confidenceBadge.className = "meta-badge muted";
   refs.verificationBadge.textContent = "Index local";
   refs.verificationBadge.className = "meta-badge muted";
@@ -280,14 +411,11 @@ function createSourcesBlock(sources) {
 }
 
 async function postFeedback(payload) {
-  const response = await fetch(`${BACKEND_URL}/feedback`, {
+  await fetchJson("/feedback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
+  }, REQUEST_TIMEOUT_MS.feedback);
 }
 
 function createFeedbackActions(payload) {
@@ -359,25 +487,32 @@ function updateResultMeta(data) {
   const confidence = data.confidence || "low";
   const score = Number.isFinite(data.confidence_score) ? data.confidence_score : 0;
 
-  refs.confidenceBadge.textContent = `Confidence ${confidence} (${score})`;
+  refs.confidenceBadge.textContent = `Incredere ${confidence} (${score})`;
   refs.confidenceBadge.className = `meta-badge ${confidenceTone(confidence)}`;
 
   refs.verificationBadge.textContent = data.live_verified ? "Verificat live" : "Index local";
   refs.verificationBadge.className = `meta-badge ${data.live_verified ? "success" : "muted"}`;
 
   const profile = data.query_profile || {};
+  const evidence = data.evidence || {};
   const metaParts = [
     `Facultate: ${data.matched_faculty || "UVT"}`,
     `Intent: ${profile.intent || "general"}`
   ];
+  if (Number.isFinite(evidence.source_count) && evidence.source_count > 0) {
+    metaParts.push(`Surse: ${evidence.source_count}`);
+  }
+  if (Number.isFinite(evidence.verified_source_count) && evidence.verified_source_count > 0) {
+    metaParts.push(`Verificate: ${evidence.verified_source_count}`);
+  }
   if (profile.policy_question) {
     metaParts.push("Rutare: regulamente/metodologii");
   }
-  if (data.retrieval_backend) {
-    metaParts.push(`Retrieval: ${data.retrieval_backend}`);
+  if (data.retrieval_backend && data.retrieval_backend !== "qdrant") {
+    metaParts.push(`Mod cautare: ${data.retrieval_backend}`);
   }
-  if (data.generation_mode) {
-    metaParts.push(`Generare: ${data.generation_mode}`);
+  if (data.generation_mode && data.generation_mode !== "ollama") {
+    metaParts.push(`Mod raspuns: ${data.generation_mode}`);
   }
   if (data.confidence_reason) {
     metaParts.push(data.confidence_reason);
@@ -434,11 +569,7 @@ async function loadFaculties() {
   const stored = await storageGet(["facultyId"]);
   const saved = stored.facultyId || "uvt";
   try {
-    const response = await fetch(`${BACKEND_URL}/faculties`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const data = await response.json();
+    const data = await fetchJson("/faculties", {}, REQUEST_TIMEOUT_MS.faculties);
     populateFaculties(data.faculties || FALLBACK_FACULTIES, saved);
     setBackendOnline(true);
   } catch {
@@ -448,25 +579,36 @@ async function loadFaculties() {
 
 async function checkBackend() {
   try {
-    const response = await fetch(`${BACKEND_URL}/health`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const data = await response.json();
+    const data = await fetchJson("/health", {}, REQUEST_TIMEOUT_MS.health);
     const chunkCount = data.index?.chunk_count || 0;
     const vectorCount = data.vector_index?.points_count || 0;
     const builtAt = data.index?.built_at || "necunoscut";
     const generationModel = data.ollama?.generation_model || "Ollama";
     const embeddingModel = data.ollama?.embedding_model || "embedding local";
+    const statusReasons = Array.isArray(data.status_reasons) ? data.status_reasons : [];
     setBackendOnline(true);
-    setStatus(
-      "idle",
-      "Backend disponibil",
-      `Qdrant: ${vectorCount} vectori. JSON: ${chunkCount} fragmente. Model: ${generationModel}. Embedding: ${embeddingModel}. Build: ${builtAt}.`
-    );
+    if (handleIndexingStatus(data.indexing)) {
+      refs.emptyText.textContent = "Indexarea oficiala ruleaza. Intrebarile vor fi disponibile dupa finalizare.";
+      return true;
+    }
+    if (data.status === "ok") {
+      setStatus(
+        "idle",
+        "Sistem pregatit",
+        `Index oficial: ${chunkCount} fragmente. Vectori: ${vectorCount}. Model raspuns: ${generationModel}. Embedding: ${embeddingModel}. Build: ${builtAt}.`
+      );
+    } else {
+      setStatus(
+        "warning",
+        "Sistem partial disponibil",
+        statusReasons.length ? statusReasons.join(" ") : "Unele componente locale nu sunt complet disponibile."
+      );
+    }
     refs.emptyText.textContent = "Exemple: orar, secretariat, admitere, burse, reguli despre cumularea burselor.";
     return true;
   } catch {
+    stopIndexingPoll();
+    setIndexingBusy(false);
     setBackendOnline(false);
     setStatus("error", "Backend indisponibil", "Porneste backend-ul Flask pe 127.0.0.1:5000 si reincarca popup-ul.");
     refs.emptyText.textContent = "Backend-ul nu raspunde. Extensia ramane deschisa, dar nu poate genera raspunsuri.";
@@ -497,6 +639,11 @@ async function sendMessage(prefilledQuestion = null) {
     return;
   }
 
+  if (state.indexing) {
+    setStatus("loading", "Indexare surse oficiale", "Asteapta finalizarea indexarii inainte de a trimite o intrebare.");
+    return;
+  }
+
   const question = (prefilledQuestion ?? refs.input.value).trim();
   if (!question) {
     refs.input.focus();
@@ -515,16 +662,11 @@ async function sendMessage(prefilledQuestion = null) {
   addLoadingMessage();
 
   try {
-    const response = await fetch(`${BACKEND_URL}/chat`, {
+    const data = await fetchJson("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, faculty_id: facultyId, history })
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
+    }, REQUEST_TIMEOUT_MS.chat);
     const sources = normalizeSources(data.sources || []);
     const answer = data.answer || "Nu exista raspuns disponibil.";
     removeLoadingMessage();
@@ -559,12 +701,18 @@ async function sendMessage(prefilledQuestion = null) {
     appendHistory("assistant", answer, sources);
     await saveConversationHistory(facultyId);
     setBackendOnline(true);
-  } catch {
+  } catch (error) {
     removeLoadingMessage();
     resetMeta();
+    if (error.payload?.indexing) {
+      handleIndexingStatus(error.payload.indexing);
+      setBackendOnline(true);
+      addBotMessage(error.payload.answer || "Indexarea este in curs. Incearca dupa finalizare.");
+      return;
+    }
     setBackendOnline(false);
-    setStatus("error", "Nu m-am putut conecta", "Verifica daca backend-ul Flask ruleaza pe 127.0.0.1:5000.");
-    addBotMessage("Nu m-am putut conecta la backend-ul Flask. Porneste serverul si incearca din nou.");
+    setStatus("error", "Nu m-am putut conecta", error.message || "Verifica daca backend-ul Flask ruleaza pe 127.0.0.1:5000.");
+    addBotMessage("Nu m-am putut conecta la backend-ul Flask. Verifica serviciile locale si incearca din nou.");
   } finally {
     setBusy(false);
   }

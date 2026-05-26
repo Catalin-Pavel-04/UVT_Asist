@@ -13,7 +13,7 @@
         <div class="logo" aria-hidden="true">U</div>
         <div>
           <h1>UVT Asist</h1>
-          <p>RAG local cu Ollama si Qdrant</p>
+          <p>Raspunsuri din surse oficiale UVT</p>
         </div>
       </div>
       <div class="topbar-actions">
@@ -25,6 +25,15 @@
     <section id="statusPanel" class="status-panel status-idle" aria-live="polite">
       <div id="statusTitle" class="status-title">Pregatit</div>
       <div id="statusText" class="status-text">Raspunsurile folosesc cautare vectoriala locala si verifica doar sursele de top.</div>
+      <div id="indexProgress" class="index-progress" hidden>
+        <div class="index-progress-head">
+          <span id="indexProgressText">Indexare in curs</span>
+          <span id="indexProgressPercent">0%</span>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+          <div id="indexProgressBar" class="progress-bar"></div>
+        </div>
+      </div>
     </section>
 
     <section class="control-panel">
@@ -37,7 +46,7 @@
 
     <section class="meta-panel">
       <div class="meta-badges">
-        <span id="confidenceBadge" class="meta-badge muted">Confidence --</span>
+        <span id="confidenceBadge" class="meta-badge muted">Incredere --</span>
         <span id="verificationBadge" class="meta-badge muted">Index local</span>
       </div>
       <div id="metaLine" class="meta-line">Paginile oficiale specifice au prioritate fata de paginile generale.</div>

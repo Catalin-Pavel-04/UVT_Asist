@@ -1,10 +1,25 @@
+# Local environments and secrets
+.env
 .venv/
+backend/.env
 backend/.ocr-venv/
 backend/.venv/
-backend/.env
+
+# Python caches and test output
 **/__pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime logs and generated data
+*.log
 backend/feedback_log.jsonl
 backend/data/page_index.json
+backend/data/page_index.meta.json
 backend/data/qdrant_local/
 qdrant_storage/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

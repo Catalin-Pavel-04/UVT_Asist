@@ -45,7 +45,11 @@ def embed_chunks(
     return vectors
 
 
-def rebuild_vector_index(index_document: dict, recreate: bool = True) -> dict:
+def rebuild_vector_index(
+    index_document: dict,
+    recreate: bool = True,
+    progress: Callable[[int, int], None] | None = None,
+) -> dict:
     raw_chunks = [
         chunk for chunk in index_document.get("chunks", [])
         if isinstance(chunk, dict) and chunk.get("chunk_text") and chunk.get("chunk_id")
@@ -55,7 +59,7 @@ def rebuild_vector_index(index_document: dict, recreate: bool = True) -> dict:
         chunks_by_id.setdefault(str(chunk["chunk_id"]), chunk)
 
     chunks = list(chunks_by_id.values())
-    vectors = embed_chunks(chunks)
+    vectors = embed_chunks(chunks, progress=progress)
     indexed_count = index_chunks(chunks, vectors, recreate=recreate)
     vector_settings = get_vector_settings()
     ollama_settings = get_ollama_settings()

@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from page_index import load_index
+from page_index import get_index_status, metadata_index_document
 from retriever import rank_index
 from vector_store import get_vector_index_status
 
@@ -28,7 +28,8 @@ class Scenario:
 SCENARIOS = [
     Scenario("info", "Unde gasesc orarul?", "Informatics schedule", "info.uvt.ro/orare", "orar"),
     Scenario("info", "Unde gasesc secretariatul facultatii de informatica?", "Informatics contact", "info.uvt.ro/contact", "contact"),
-    Scenario("uvt", "Este posibil ca un student sa beneficieze de 2 burse?", "Scholarship policy", "Metodologie-de-acordare-a-burselor", "regulamente"),
+    Scenario("uvt", "Este posibil ca un student sa beneficieze de 2 burse?", "Scholarship policy", "Metodologie-privind-acordarea-burselor", "regulamente"),
+    Scenario("uvt", "Cum se depune dosarul pentru creditele de voluntariat?", "Volunteering credits", "oportunitati-de-voluntariat", "regulamente"),
     Scenario("uvt", "Unde gasesc informatii despre admitere?", "Admission", None, "admitere"),
     Scenario("info", "Unde gasesc orrarul la info?", "Typo schedule", "info.uvt.ro/orare", "orar"),
 ]
@@ -73,7 +74,8 @@ def scenario_passed(scenario: Scenario, result: dict) -> bool:
 
 
 def main() -> int:
-    index_document = load_index()
+    index_status = get_index_status()
+    index_document = metadata_index_document(index_status)
     vector_status = get_vector_index_status()
     print(
         f"Loaded index schema={index_document.get('schema_version')} "
