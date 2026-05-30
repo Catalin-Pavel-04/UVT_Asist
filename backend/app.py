@@ -18,9 +18,9 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 from faculties import FACULTIES
-from ollama_client import ask_ollama, get_ollama_status
+from ollama_client import ask_ollama_json, get_ollama_status
 from page_index import build_chunk_entries_from_pages, get_index_status, load_index, metadata_index_document, normalize_url
-from prompts import SYSTEM_PROMPT, build_user_prompt
+from prompts import SYSTEM_PROMPT, build_answer_json_prompt, build_repair_prompt, build_user_prompt
 from retriever import (
     compute_confidence,
     normalize as normalize_retrieval_text,
@@ -45,7 +45,6 @@ def env_bool(name: str, default: str = "false") -> bool:
 
 
 MAX_QUESTION_CHARS = max(120, int(os.getenv("MAX_QUESTION_CHARS", "1200")))
-MIN_GENERATION_CONFIDENCE_SCORE = max(0, int(os.getenv("MIN_GENERATION_CONFIDENCE_SCORE", "35")))
 LIVE_VERIFY_ENABLED = env_bool("LIVE_VERIFY_ENABLED", "true")
 LIVE_VERIFY_LIMIT = max(0, int(os.getenv("LIVE_VERIFY_LIMIT", "2")))
 RESPONSE_CACHE_TTL = max(60, int(os.getenv("CHAT_RESPONSE_CACHE_TTL", "300")))
@@ -474,324 +473,38 @@ def unique_sources_from_chunks(chunks: list[dict]) -> list[dict]:
     return sources
 
 
-POLICY_EVIDENCE_MARKERS = (
-    "are dreptul",
-    "adeverinta",
-    "conditie",
-    "conditii",
-    "continutul",
-    "copii aferente",
-    "depus",
-    "depunerea",
-    "doar",
-    "dreptul",
-    "eligibil",
-    "evaluare",
-    "except",
-    "formular",
-    "format electronic",
-    "interzis",
-    "nu poate",
-    "nu se",
-    "numai",
-    "obligator",
-    "poate",
-    "portofoliu",
-    "pot beneficia",
-    "pot fi",
-    "raport de activitate",
-    "se acorda",
-    "se poate realiza",
-    "simultan",
-    "trebuie",
-)
-
-NUMBER_ALIASES = {
-    "1": ("1", "un", "una"),
-    "2": ("2", "doi", "doua"),
-    "3": ("3", "trei"),
-}
-
-INCOMPLETE_UNIT_ENDINGS = {
-    "a",
-    "ai",
-    "al",
-    "ale",
-    "ca",
-    "cu",
-    "de",
-    "din",
-    "in",
-    "la",
-    "pe",
-    "pentru",
-    "prin",
-    "sau",
-    "sa",
-    "să",
-}
-
-INCOMPLETE_UNIT_STARTS = {
-    "a",
-    "ale",
-    "al",
-    "care",
-    "ce",
-    "cu",
-    "de",
-    "din",
-    "iar",
-    "la",
-    "pe",
-    "si",
-    "și",
-}
+def source_reference(title: str, url: str) -> str:
+    safe_title = compact_text(title or "sursa oficiala", 220)
+    safe_url = compact_text(url, 500)
+    if safe_url:
+        return f"\"{safe_title}\" - {safe_url}"
+    return f"\"{safe_title}\""
 
 
-def split_evidence_units(text: str) -> list[str]:
-    cleaned = " ".join(str(text or "").split())
-    if not cleaned:
-        return []
+def build_source_summary_answer(retrieval_result: dict, reason: str | None = None) -> str:
+    chunks = retrieval_result.get("chunks", [])
+    sources = unique_sources_from_chunks(chunks)[:2]
+    if not sources:
+        return (
+            "Nu exista suficiente fragmente oficiale selectate de backend pentru a trimite un context util catre Ollama. "
+            "Nu pot formula un raspuns sigur si nu pot cita o sursa specifica pentru aceasta intrebare."
+        )
 
-    cleaned = re.sub(r"\balin\.\s*\((\d+)\)", r"alin \1", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\balin\s*\((\d+)\)", r"alin \1", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\balin\.\s*(\d+)", r"alin \1", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\bart\.", "art", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\blit\.", "lit", cleaned, flags=re.IGNORECASE)
-    prepared = re.sub(r"\s+(\(\d+\))\s+", r" || \1 ", cleaned)
-    sentence_parts = re.split(r"\s*\|\|\s*|(?<=[.!?])\s+(?=[(A-Z0-9])", prepared)
-    units: list[str] = []
-
-    for sentence in sentence_parts:
-        sentence = re.sub(r"^\(\d+\)\s*", "", sentence).strip(" ;:-")
-        if not sentence:
-            continue
-        clause_parts = re.split(r"\s*;\s*", sentence)
-        for clause in clause_parts:
-            clause = re.sub(r"^\(\d+\)\s*", "", clause).strip(" ;:-")
-            if len(clause) >= 28:
-                units.append(clause)
-
-    return units
-
-
-def token_matches_unit(token: str, normalized_unit: str) -> bool:
-    aliases = NUMBER_ALIASES.get(token, (token,))
-    if any(re.search(rf"\b{re.escape(alias)}\b", normalized_unit) for alias in aliases):
-        return True
-    if len(token) >= 4:
-        root_size = 5 if len(token) > 5 else 4
-        if token[:root_size] in normalized_unit:
-            return True
-    return False
-
-
-def query_number_matches_unit(query_tokens: list[str], normalized_unit: str) -> bool:
-    for token in query_tokens:
-        if token in NUMBER_ALIASES and token_matches_unit(token, normalized_unit):
-            return True
-    return False
-
-
-def has_query_number(query_tokens: list[str]) -> bool:
-    return any(token in NUMBER_ALIASES for token in query_tokens)
-
-
-def has_aggregation_signal(normalized_unit: str) -> bool:
-    return any(marker in normalized_unit for marker in ("cumul", "simultan", "aceeasi categorie", "acelasi tip"))
-
-
-def has_negation_or_restriction(normalized_unit: str) -> bool:
-    return any(marker in normalized_unit for marker in ("nu poate", "nu se", "numai", "doar", "interzis"))
-
-
-def unit_contains_answer_signal(normalized_unit: str) -> bool:
-    return any(marker in normalized_unit for marker in POLICY_EVIDENCE_MARKERS) or has_negation_or_restriction(normalized_unit)
-
-
-def looks_incomplete_evidence_unit(unit: str) -> bool:
-    stripped = unit.strip()
-    if not stripped:
-        return False
-
-    words = normalize_retrieval_text(stripped).split()
-    if not words:
-        return False
-    starts_mid_sentence = stripped[0].islower() and words[0] in INCOMPLETE_UNIT_STARTS
-    if starts_mid_sentence:
-        return True
-    if stripped[-1] in ".!?)":
-        return False
-    return starts_mid_sentence or words[-1] in INCOMPLETE_UNIT_ENDINGS
-
-
-def should_keep_scored_unit(score: int, normalized_unit: str, query_tokens: list[str]) -> bool:
-    if score < 15:
-        return False
-    if looks_incomplete_evidence_unit(normalized_unit):
-        return False
-    if re.match(r"^anexa\s+\d+\b", normalized_unit):
-        return False
-    if has_query_number(query_tokens) and not (
-        query_number_matches_unit(query_tokens, normalized_unit)
-        or has_aggregation_signal(normalized_unit)
-        or has_negation_or_restriction(normalized_unit)
-    ):
-        return False
-    return unit_contains_answer_signal(normalized_unit)
-
-
-def score_evidence_unit(unit: str, analysis: dict) -> int:
-    normalized_unit = normalize_retrieval_text(unit)
-    query_tokens = list(dict.fromkeys([
-        *(analysis.get("tokens") or []),
-        *(analysis.get("expanded_tokens") or []),
-    ]))
-    token_score = sum(1 for token in query_tokens if token_matches_unit(str(token), normalized_unit))
-    marker_score = sum(1 for marker in POLICY_EVIDENCE_MARKERS if marker in normalized_unit)
-
-    score = token_score * 8 + marker_score * 5
-    if analysis.get("is_policy_question") and marker_score:
-        score += 12
-    if token_score >= 2 and marker_score:
-        score += 10
-    if has_query_number(query_tokens):
-        if query_number_matches_unit(query_tokens, normalized_unit):
-            score += 24
-        elif has_aggregation_signal(normalized_unit):
-            score += 12
-        else:
-            score -= 24
-    return score
-
-
-def trim_evidence_unit(unit: str, max_words: int = 40) -> str:
-    words = unit.split()
-    if len(words) <= max_words:
-        return unit.rstrip(".")
-    return " ".join(words[:max_words]).rstrip(".,;:") + "..."
-
-
-def build_extractive_evidence_answer(retrieval_result: dict) -> str | None:
-    analysis = retrieval_result.get("analysis", {})
-    if not analysis.get("is_policy_question"):
-        return None
-
-    query_tokens = list(dict.fromkeys([
-        *(analysis.get("tokens") or []),
-        *(analysis.get("expanded_tokens") or []),
-    ]))
-    candidates: list[dict] = []
-    for source_order, chunk in enumerate(retrieval_result.get("chunks", [])[:4]):
-        title = str(chunk.get("title") or chunk.get("url") or "sursa oficiala")
-        url = str(chunk.get("url") or "")
-        for unit_order, unit in enumerate(split_evidence_units(chunk.get("chunk_text", ""))):
-            normalized_unit = normalize_retrieval_text(unit)
-            score = score_evidence_unit(unit, analysis)
-            if should_keep_scored_unit(score, normalized_unit, query_tokens):
-                candidates.append({
-                    "score": score + max(0, 4 - source_order),
-                    "source_order": source_order,
-                    "unit_order": unit_order,
-                    "unit": unit,
-                    "title": title,
-                    "url": url,
-                })
-
-    if not candidates:
-        return None
-
-    best_source = max(candidates, key=lambda item: item["score"])
-    selected = [
-        candidate for candidate in candidates
-        if candidate["url"] == best_source["url"]
-    ]
-    selected.sort(key=lambda item: (-item["score"], item["unit_order"]))
-    selected = sorted(selected[:3], key=lambda item: item["unit_order"])
-    facts = [trim_evidence_unit(item["unit"]) for item in selected]
+    source_list = "; ".join(source_reference(source["title"], source["url"]) for source in sources)
+    prefix = reason or "Nu pot genera local un raspuns de continut, deoarece analiza informatiei este rezervata pentru Ollama."
+    if retrieval_result.get("confidence") == "low":
+        return (
+            f"{prefix} Backend-ul a gasit doar dovezi partiale sau prea generale. "
+            f"Sursele oficiale cele mai apropiate sunt: {source_list}."
+        )
 
     return (
-        "Din sursa oficiala reiese ca:\n"
-        + "\n".join(f"- {fact}." for fact in facts)
-        + f"\nSursa: \"{best_source['title']}\" - {best_source['url']}."
+        f"{prefix} Backend-ul a selectat urmatoarele surse oficiale pentru intrebare: {source_list}."
     )
 
 
-def build_local_fallback_answer(retrieval_result: dict) -> str:
-    chunks = retrieval_result.get("chunks", [])
-    if not chunks:
-        return "Nu am gasit suficiente dovezi oficiale in indexul local pentru un raspuns sigur."
-
-    best_chunk = chunks[0]
-    analysis = retrieval_result.get("analysis", {})
-    intent = analysis.get("intent", "general")
-    tokens = set(analysis.get("tokens") or [])
-    expanded_tokens = set(analysis.get("expanded_tokens") or tokens)
-    title = best_chunk.get("title", "sursa oficiala")
-    url = best_chunk.get("url", "")
-    chunk_text = " ".join(str(best_chunk.get("chunk_text", "")).split())
-    normalized_chunk = normalize_retrieval_text(chunk_text)
-
-    if retrieval_result.get("confidence") == "low":
-        return (
-            "Nu am gasit o sursa oficiala suficient de relevanta pentru aceasta intrebare in indexul local. "
-            "Sursele apropiate sunt afisate mai jos, dar nu sustin un raspuns sigur."
-        )
-
-    extractive_answer = build_extractive_evidence_answer(retrieval_result)
-    if extractive_answer:
-        return extractive_answer
-
-    if intent == "orar":
-        return f"Pentru orar, foloseste pagina oficiala \"{title}\": {url}."
-
-    if intent == "contact":
-        return f"Pentru secretariat sau date de contact, consulta pagina oficiala \"{title}\": {url}."
-
-    if intent == "admitere":
-        return f"Pentru informatii despre admitere, cea mai potrivita sursa oficiala gasita este \"{title}\": {url}."
-
-    if intent == "studenti" and {"cazare", "camin", "camine"} & tokens:
-        return f"Pentru cazare si camine, consulta pagina oficiala \"{title}\": {url}."
-
-    if intent == "studenti" and {"calendar", "structura", "universitar", "an"} & tokens:
-        date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})\s+inceperea anului universitar", normalized_chunk)
-        if date_match:
-            return (
-                f"Conform sursei oficiale \"{title}\", inceperea anului universitar este indicata la "
-                f"{date_match.group(1)}. Sursa: {url}."
-            )
-        return f"Pentru structura anului universitar, consulta sursa oficiala \"{title}\": {url}."
-
-    return f"Cea mai relevanta sursa oficiala gasita este \"{title}\": {url}."
-
-
-def build_deterministic_answer(retrieval_result: dict) -> tuple[str, str] | None:
-    if retrieval_result.get("confidence") == "low":
-        return None
-
-    chunks = retrieval_result.get("chunks", [])
-    if not chunks:
-        return None
-
-    analysis = retrieval_result.get("analysis", {})
-    intent = analysis.get("intent", "general")
-    tokens = set(analysis.get("tokens") or [])
-    expanded_tokens = set(analysis.get("expanded_tokens") or tokens)
-    deterministic_intents = {"orar", "contact", "admitere"}
-
-    if intent in deterministic_intents:
-        return build_local_fallback_answer(retrieval_result), f"deterministic_{intent}"
-
-    if intent == "studenti" and {"cazare", "camin", "camine", "calendar", "structura", "universitar", "an"} & tokens:
-        return build_local_fallback_answer(retrieval_result), "deterministic_student_service"
-
-    if analysis.get("is_policy_question"):
-        extractive_answer = build_extractive_evidence_answer(retrieval_result)
-        if extractive_answer:
-            return extractive_answer, "deterministic_policy"
-
-    return None
+def build_local_fallback_answer(retrieval_result: dict, reason: str | None = None) -> str:
+    return build_source_summary_answer(retrieval_result, reason=reason)
 
 
 def build_evidence_profile(retrieval_result: dict, live_verified: bool) -> dict:
@@ -822,7 +535,29 @@ def build_evidence_profile(retrieval_result: dict, live_verified: bool) -> dict:
 
 def answer_needs_fallback(answer: str) -> bool:
     head = " ".join(str(answer).split()).lower()[:900]
+    if not head:
+        return True
     return any(marker in head for marker in BAD_GENERATION_MARKERS)
+
+
+def ask_ollama_answer(answer_prompt: str) -> str:
+    response = ask_ollama_json(
+        SYSTEM_PROMPT,
+        build_answer_json_prompt(answer_prompt),
+        timeout_seconds=max(15, int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "120"))),
+        num_predict=max(350, int(os.getenv("OLLAMA_NUM_PREDICT", "700"))),
+    )
+    answer = str(response.get("answer") or "").strip()
+    if not answer:
+        raise RuntimeError("Ollama did not return an answer field.")
+    return answer
+
+
+def repair_generated_answer(prompt: str, flawed_answer: str) -> str | None:
+    repaired_answer = ask_ollama_answer(build_repair_prompt(prompt, flawed_answer))
+    if answer_needs_fallback(repaired_answer):
+        return None
+    return repaired_answer
 
 
 def live_verify_retrieval(
@@ -997,10 +732,7 @@ def numeric_confidence_score(value) -> int:
 
 
 def should_skip_generation(retrieval_result: dict) -> bool:
-    return (
-        not retrieval_result.get("chunks")
-        or numeric_confidence_score(retrieval_result.get("confidence_score")) < MIN_GENERATION_CONFIDENCE_SCORE
-    )
+    return not retrieval_result.get("chunks")
 
 
 def vector_runtime_ready(vector_status: dict) -> bool:
@@ -1055,13 +787,12 @@ def chat():
         )
         refresh_confidence(retrieval_result, merged_chunks)
 
-    deterministic_answer = build_deterministic_answer(retrieval_result)
-    if deterministic_answer:
-        answer, generation_mode = deterministic_answer
-        generation = {"mode": generation_mode}
-    elif should_skip_generation(retrieval_result):
+    if should_skip_generation(retrieval_result):
         generation = {"mode": "fallback_low_evidence"}
-        answer = build_local_fallback_answer(retrieval_result)
+        answer = build_local_fallback_answer(
+            retrieval_result,
+            reason="Nu exista context oficial selectat pentru generarea cu Ollama.",
+        )
     else:
         prompt = build_user_prompt(
             chat_request.question,
@@ -1072,13 +803,24 @@ def chat():
         )
         generation = {"mode": "ollama"}
         try:
-            answer = ask_ollama(SYSTEM_PROMPT, prompt)
+            answer = ask_ollama_answer(prompt)
             if answer_needs_fallback(answer):
-                generation = {"mode": "fallback_bad_generation"}
-                answer = build_local_fallback_answer(retrieval_result)
+                repaired_answer = repair_generated_answer(prompt, answer)
+                if repaired_answer:
+                    generation = {"mode": "ollama_repair"}
+                    answer = repaired_answer
+                else:
+                    generation = {"mode": "fallback_bad_generation"}
+                    answer = build_local_fallback_answer(
+                        retrieval_result,
+                        reason="Raspunsul generat de Ollama nu a respectat contractul de siguranta.",
+                    )
         except Exception as exc:
             generation = {"mode": "fallback_ollama_error", "error": compact_text(exc, 800)}
-            answer = build_local_fallback_answer(retrieval_result)
+            answer = build_local_fallback_answer(
+                retrieval_result,
+                reason="Ollama nu a putut genera raspunsul in acest moment.",
+            )
 
     response_payload = build_response_payload(answer, faculty, retrieval_result, live_verified, generation)
     set_cached_response(cache_key, response_payload)

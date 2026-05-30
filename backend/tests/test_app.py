@@ -19,13 +19,13 @@ class AppTests(unittest.TestCase):
         app_module.RESPONSE_CACHE.clear()
         self.client = app_module.app.test_client()
 
-    def test_incomplete_policy_fragments_are_rejected(self) -> None:
-        self.assertTrue(app_module.looks_incomplete_evidence_unit(
-            "Studentii pot beneficia de burse numai de la una dintre institutii, cu conditia ca numarul total sa nu depaseasca anii de"
-        ))
-        self.assertFalse(app_module.looks_incomplete_evidence_unit(
-            "Bursele prevazute la art 2 alin 4 pot fi cumulate cu alte burse."
-        ))
+    def test_generation_skips_only_when_no_chunks_exist(self) -> None:
+        self.assertTrue(app_module.should_skip_generation({"chunks": []}))
+        self.assertFalse(app_module.should_skip_generation({
+            "chunks": [{"url": "https://uvt.ro", "chunk_text": "Fragment oficial."}],
+            "confidence": "low",
+            "confidence_score": 10,
+        }))
 
     def test_chat_handles_non_object_json_without_500(self) -> None:
         response = self.client.post("/chat", json=["not", "an", "object"])
@@ -56,7 +56,7 @@ class AppTests(unittest.TestCase):
             patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
             patch.object(app_module, "get_vector_index_status", return_value={"points_count": 0}),
             patch.object(app_module, "rank_index", return_value=retrieval_result),
-            patch.object(app_module, "ask_ollama", side_effect=AssertionError("LLM should not be called")),
+            patch.object(app_module, "ask_ollama_json", side_effect=AssertionError("LLM should not be called")),
         ):
             response = self.client.post("/chat", json={"question": "ceva imposibil", "faculty_id": "uvt"})
 
@@ -66,7 +66,120 @@ class AppTests(unittest.TestCase):
         self.assertEqual(payload["sources"], [])
         self.assertFalse(payload["evidence"]["answerable"])
 
-    def test_navigation_question_uses_deterministic_answer_without_llm(self) -> None:
+    def test_low_confidence_with_sources_still_uses_ollama(self) -> None:
+        retrieval_result = {
+            "analysis": {
+                "intent": "general",
+                "is_policy_question": False,
+                "corrected_question": "taxa camin",
+                "tokens": ["taxa", "camin"],
+                "expanded_tokens": ["taxa", "camin"],
+                "corrections": [],
+            },
+            "chunks": [
+                {
+                    "chunk_id": "general",
+                    "faculty_id": "uvt",
+                    "page_type": "general",
+                    "title": "Pagina generala UVT",
+                    "url": "https://uvt.ro/",
+                    "chunk_text": "Pagina generala a universitatii.",
+                    "retrieval_score": 20,
+                    "match_signals": [],
+                }
+            ],
+            "confidence": "low",
+            "confidence_score": 30,
+            "confidence_reason": "Dovezi prea generale.",
+            "retrieval_backend": "qdrant",
+        }
+
+        with (
+            patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
+            patch.object(app_module, "rank_index", return_value=retrieval_result),
+            patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(
+                app_module,
+                "ask_ollama_json",
+                return_value={"answer": "Sursele recuperate sunt prea generale pentru un raspuns sigur."},
+            ) as ask_ollama,
+        ):
+            response = self.client.post("/chat", json={"question": "cat e taxa de camin?", "faculty_id": "uvt"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["generation_mode"], "ollama")
+        self.assertEqual(payload["answer"], "Sursele recuperate sunt prea generale pentru un raspuns sigur.")
+        ask_ollama.assert_called_once()
+
+    def test_local_fallback_lists_sources_without_content_analysis(self) -> None:
+        retrieval_result = {
+            "analysis": {
+                "intent": "general",
+                "is_policy_question": False,
+                "corrected_question": "metodologie burse",
+                "tokens": ["metodologie", "burse"],
+                "expanded_tokens": ["metodologie", "burse", "document"],
+                "corrections": [],
+            },
+            "chunks": [
+                {
+                    "chunk_id": "burse",
+                    "faculty_id": "info",
+                    "page_type": "studenti",
+                    "title": "Burse - Facultatea de Informatica",
+                    "url": "https://info.uvt.ro/burse",
+                    "chunk_text": (
+                        "Burse Informatii relevante privind procesul de acordare a burselor. "
+                        "Metodologia privind acordarea burselor pentru anul universitar curent poate fi accesata aici."
+                    ),
+                }
+            ],
+            "confidence": "medium",
+            "confidence_score": 60,
+            "confidence_reason": "Exista surse oficiale relevante.",
+            "retrieval_backend": "qdrant",
+        }
+
+        answer = app_module.build_local_fallback_answer(retrieval_result)
+
+        self.assertIn("analiza informatiei este rezervata pentru Ollama", answer)
+        self.assertIn("\"Burse - Facultatea de Informatica\" - https://info.uvt.ro/burse", answer)
+        self.assertNotIn("Metodologia privind acordarea burselor", answer)
+
+    def test_low_evidence_with_sources_still_cites_nearest_sources(self) -> None:
+        retrieval_result = {
+            "analysis": {
+                "intent": "general",
+                "is_policy_question": False,
+                "corrected_question": "taxa camin",
+                "tokens": ["taxa", "camin"],
+                "expanded_tokens": ["taxa", "camin"],
+                "corrections": [],
+            },
+            "chunks": [
+                {
+                    "chunk_id": "general",
+                    "faculty_id": "uvt",
+                    "page_type": "general",
+                    "title": "Pagina generala UVT",
+                    "url": "https://uvt.ro/",
+                    "chunk_text": "Pagina generala a universitatii.",
+                }
+            ],
+            "confidence": "low",
+            "confidence_score": 30,
+            "confidence_reason": "Dovezi prea generale.",
+            "retrieval_backend": "qdrant",
+        }
+
+        answer = app_module.build_local_fallback_answer(retrieval_result)
+
+        self.assertIn("Backend-ul a gasit doar dovezi partiale", answer)
+        self.assertIn("\"Pagina generala UVT\" - https://uvt.ro/", answer)
+
+    def test_navigation_question_uses_ollama_with_backend_sources(self) -> None:
         retrieval_result = {
             "analysis": {
                 "intent": "orar",
@@ -99,18 +212,80 @@ class AppTests(unittest.TestCase):
             patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
             patch.object(app_module, "rank_index", return_value=retrieval_result),
             patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
-            patch.object(app_module, "ask_ollama", side_effect=AssertionError("LLM should not be called")),
+            patch.object(
+                app_module,
+                "ask_ollama_json",
+                return_value={"answer": "Orarul este publicat pe pagina oficiala Orare - https://info.uvt.ro/orare."},
+            ) as ask_ollama,
         ):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(payload["generation_mode"], "deterministic_orar")
+        self.assertEqual(payload["generation_mode"], "ollama")
         self.assertTrue(payload["evidence"]["answerable"])
         self.assertEqual(payload["evidence"]["top_source"]["url"], "https://info.uvt.ro/orare")
         self.assertIn("https://info.uvt.ro/orare", payload["answer"])
+        ask_ollama.assert_called_once()
+        prompt = ask_ollama.call_args.args[1]
+        self.assertIn("Orare - Facultatea de Informatica", prompt)
+        self.assertIn("https://info.uvt.ro/orare", prompt)
 
-    def test_policy_answer_extracts_relevant_rules_from_evidence(self) -> None:
+    def test_bad_generation_is_repaired_with_ollama_before_fallback(self) -> None:
+        retrieval_result = {
+            "analysis": {
+                "intent": "orar",
+                "is_policy_question": False,
+                "corrected_question": "orar",
+                "tokens": ["orar"],
+                "expanded_tokens": ["orar", "orare"],
+                "corrections": [],
+            },
+            "chunks": [
+                {
+                    "chunk_id": "schedule",
+                    "faculty_id": "info",
+                    "page_type": "orar",
+                    "title": "Orare - Facultatea de Informatica",
+                    "url": "https://info.uvt.ro/orare",
+                    "chunk_text": "Orarul este publicat pe pagina Orare.",
+                    "retrieval_score": 120,
+                    "match_signals": ["schedule_exact_path"],
+                }
+            ],
+            "confidence": "high",
+            "confidence_score": 95,
+            "confidence_reason": "Potrivire directa.",
+            "retrieval_backend": "qdrant",
+        }
+
+        with (
+            patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
+            patch.object(app_module, "rank_index", return_value=retrieval_result),
+            patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(
+                app_module,
+                "ask_ollama_json",
+                side_effect=[
+                    {"answer": "According to Source 1, orarul este disponibil in retrieved context."},
+                    {"answer": "Orarul este publicat pe pagina oficiala \"Orare - Facultatea de Informatica\" - https://info.uvt.ro/orare."},
+                ],
+            ) as ask_ollama,
+        ):
+            response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["generation_mode"], "ollama_repair")
+        self.assertIn("https://info.uvt.ro/orare", payload["answer"])
+        self.assertNotIn("Source 1", payload["answer"])
+        self.assertEqual(ask_ollama.call_count, 2)
+        repair_prompt = ask_ollama.call_args.args[1]
+        self.assertIn("Previous draft that must be repaired", repair_prompt)
+        self.assertIn("Orare - Facultatea de Informatica", repair_prompt)
+
+    def test_policy_question_uses_ollama_with_retrieved_evidence(self) -> None:
         retrieval_result = {
             "analysis": {
                 "intent": "regulamente",
@@ -143,91 +318,38 @@ class AppTests(unittest.TestCase):
             "retrieval_backend": "qdrant",
         }
 
-        answer, mode = app_module.build_deterministic_answer(retrieval_result)
+        with (
+            patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
+            patch.object(app_module, "rank_index", return_value=retrieval_result),
+            patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(
+                app_module,
+                "ask_ollama_json",
+                return_value=(
+                    {
+                        "answer": (
+                            "Conform metodologiei, bursele din aceeasi categorie nu se cumuleaza, "
+                            "iar anumite burse pot fi cumulate cu alte burse. Sursa: Metodologie burse - https://uvt.ro/metodologie-burse.pdf."
+                        )
+                    }
+                ),
+            ) as ask_ollama,
+        ):
+            response = self.client.post(
+                "/chat",
+                json={"question": "Este posibil ca un student sa beneficieze de 2 burse?", "faculty_id": "uvt"},
+            )
 
-        self.assertEqual(mode, "deterministic_policy")
-        self.assertIn("Din sursa oficiala reiese ca", answer)
-        self.assertIn("Un student nu poate primi doua tipuri de burse simultan", answer)
-        self.assertIn("valoare mai mare", answer)
-        self.assertIn("pot fi cumulate cu alte burse", answer)
-        self.assertIn("numai de la una dintre institutii", answer)
-        self.assertIn("https://uvt.ro/metodologie-burse.pdf", answer)
-
-    def test_policy_extraction_is_not_scholarship_specific(self) -> None:
-        retrieval_result = {
-            "analysis": {
-                "intent": "regulamente",
-                "is_policy_question": True,
-                "corrected_question": "conditii cazare camin",
-                "tokens": ["conditii", "cazare", "camin"],
-                "expanded_tokens": ["conditii", "cazare", "camin", "eligibil"],
-                "corrections": [],
-            },
-            "chunks": [
-                {
-                    "chunk_id": "cazare",
-                    "faculty_id": "uvt",
-                    "page_type": "regulamente",
-                    "title": "Regulament cazare",
-                    "url": "https://uvt.ro/regulament-cazare.pdf",
-                    "chunk_text": (
-                        "Studentii sunt eligibili pentru cazare daca au calitatea de student inmatriculat. "
-                        "Cererea trebuie depusa in termenul stabilit prin calendarul oficial. "
-                        "Locul de cazare se acorda numai daca dosarul este complet."
-                    ),
-                }
-            ],
-            "confidence": "high",
-            "confidence_score": 90,
-            "confidence_reason": "Reguli explicite.",
-            "retrieval_backend": "qdrant",
-        }
-
-        answer, mode = app_module.build_deterministic_answer(retrieval_result)
-
-        self.assertEqual(mode, "deterministic_policy")
-        self.assertIn("Studentii sunt eligibili pentru cazare", answer)
-        self.assertIn("Cererea trebuie depusa", answer)
-        self.assertIn("Locul de cazare se acorda numai", answer)
-
-    def test_policy_extraction_handles_procedural_portfolio_evidence(self) -> None:
-        retrieval_result = {
-            "analysis": {
-                "intent": "regulamente",
-                "is_policy_question": True,
-                "corrected_question": "depune dosar credite voluntariat",
-                "tokens": ["depune", "dosar", "credite", "voluntariat"],
-                "expanded_tokens": ["depune", "dosar", "credite", "voluntariat", "portofoliu", "formular"],
-                "corrections": [],
-            },
-            "chunks": [
-                {
-                    "chunk_id": "voluntariat",
-                    "faculty_id": "uvt",
-                    "page_type": "regulamente",
-                    "title": "Depunerea portofoliilor pentru credite de voluntariat",
-                    "url": "https://uvt.ro/educatie/credite-voluntariat",
-                    "chunk_text": (
-                        "Depunerea portofoliilor pentru acordarea creditelor pentru implicarea in activitati "
-                        "de voluntariat se poate realiza prin formularul oficial. "
-                        "Portofoliul contine raport de activitate, copii ale diplomelor daca este cazul, "
-                        "adeverinta care atesta minimum 60 ore si evaluare realizata de coordonator."
-                    ),
-                }
-            ],
-            "confidence": "high",
-            "confidence_score": 92,
-            "confidence_reason": "Reguli explicite.",
-            "retrieval_backend": "qdrant",
-        }
-
-        answer, mode = app_module.build_deterministic_answer(retrieval_result)
-
-        self.assertEqual(mode, "deterministic_policy")
-        self.assertIn("Depunerea portofoliilor", answer)
-        self.assertIn("formularul oficial", answer)
-        self.assertIn("raport de activitate", answer)
-        self.assertIn("adeverinta", answer)
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["generation_mode"], "ollama")
+        self.assertIn("Metodologie burse", payload["answer"])
+        ask_ollama.assert_called_once()
+        prompt = ask_ollama.call_args.args[1]
+        self.assertIn("Un student nu poate primi doua tipuri de burse simultan", prompt)
+        self.assertIn("Bursele prevazute la art. 2 alin (4) pot fi cumulate", prompt)
+        self.assertIn("https://uvt.ro/metodologie-burse.pdf", prompt)
 
     def test_live_verification_can_be_disabled_for_offline_runtime(self) -> None:
         retrieval_result = {
@@ -282,6 +404,7 @@ class AppTests(unittest.TestCase):
             patch.object(app_module, "load_index", side_effect=AssertionError("Full JSON should not be loaded")),
             patch.object(app_module, "rank_index", return_value=retrieval_result),
             patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(app_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
         ):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
 

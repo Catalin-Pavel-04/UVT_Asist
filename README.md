@@ -76,6 +76,55 @@ QDRANT_PATH=backend/data/qdrant_local
 
 For thesis demos, the Docker/server mode is easier to inspect and reset.
 
+## Run The Application
+
+Run all commands from the repository root. The app needs three local services running at the same time: Ollama, Qdrant, and the Flask backend. The Chrome extension is then loaded from the `extension/` folder.
+
+First run after setup:
+
+1. Start Ollama in a terminal:
+
+```powershell
+ollama serve
+```
+
+2. Start Qdrant in another terminal:
+
+```powershell
+docker start uvt-asist-qdrant
+```
+
+If the container was not created yet, use the `docker run ... qdrant/qdrant` command from the setup section instead and leave that terminal open.
+
+3. Build the local JSON and Qdrant index once:
+
+```powershell
+.venv\Scripts\activate
+python backend\build_index.py
+```
+
+4. Start the Flask backend:
+
+```powershell
+python backend\app.py
+```
+
+5. Check that the backend is ready:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/health
+```
+
+6. Load the Chrome extension:
+
+- Open `chrome://extensions`.
+- Enable Developer mode.
+- Choose Load unpacked.
+- Select the `extension/` folder.
+- Open the extension popup and ask a question.
+
+For later runs, the usual sequence is shorter: start Ollama, start Qdrant, activate `.venv`, run `python backend\app.py`, then use the already-loaded Chrome extension. Rebuild the index only when official sources, crawler settings, chunking, or the embedding model change.
+
 ## Build Or Rebuild The Index
 
 Full crawl plus JSON and Qdrant vector index:
