@@ -26,6 +26,7 @@ from retriever import (
     normalize as normalize_retrieval_text,
     query_analysis_enabled,
     rank_index,
+    rank_lexical_index,
     rank_runtime_chunks,
 )
 from site_cache import get_cache_status, verify_pages
@@ -48,6 +49,7 @@ MAX_QUESTION_CHARS = max(120, int(os.getenv("MAX_QUESTION_CHARS", "1200")))
 LIVE_VERIFY_ENABLED = env_bool("LIVE_VERIFY_ENABLED", "true")
 LIVE_VERIFY_LIMIT = max(0, int(os.getenv("LIVE_VERIFY_LIMIT", "2")))
 RESPONSE_CACHE_TTL = max(60, int(os.getenv("CHAT_RESPONSE_CACHE_TTL", "300")))
+CHAT_CACHE_VERSION = os.getenv("CHAT_CACHE_VERSION", "2026-06-01-rag-v3").strip() or "2026-06-01-rag-v3"
 MAX_FEEDBACK_TEXT_CHARS = max(200, int(os.getenv("MAX_FEEDBACK_TEXT_CHARS", "4000")))
 MAX_FEEDBACK_SOURCES = max(1, int(os.getenv("MAX_FEEDBACK_SOURCES", "6")))
 STARTUP_REBUILD_INDEX = env_bool("STARTUP_REBUILD_INDEX", "false")
@@ -129,6 +131,7 @@ VAGUE_QUESTIONS = {
 }
 
 FACULTY_SCOPED_INTENTS = {"orar", "contact"}
+LIVE_VERIFY_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 BAD_GENERATION_MARKERS = (
     "okay,",
@@ -225,6 +228,7 @@ def health():
         "retrieval_mode": retrieval_mode,
         "live_verification_enabled": bool(LIVE_VERIFY_ENABLED and LIVE_VERIFY_LIMIT > 0),
         "live_verify_limit": LIVE_VERIFY_LIMIT,
+        "chat_cache_version": CHAT_CACHE_VERSION,
         "startup_indexing": {
             "enabled": STARTUP_REBUILD_INDEX,
             "full_site": STARTUP_REBUILD_FULL_SITE,
@@ -398,6 +402,7 @@ def build_cache_key(
         "history": history[-2:],
         "index_built_at": index_built_at,
         "vector_points_count": vector_points_count,
+        "chat_cache_version": CHAT_CACHE_VERSION,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -417,36 +422,50 @@ def set_cached_response(cache_key: str, response_payload: dict) -> None:
 
 
 def merge_ranked_chunks(primary_chunks: list[dict], verified_chunks: list[dict]) -> list[dict]:
-    verified_by_url: dict[str, dict] = {}
+    verified_by_url: dict[str, list[dict]] = {}
     for chunk in verified_chunks:
         normalized_url = normalize_url(chunk.get("url", ""))
         if not normalized_url:
             continue
-        previous = verified_by_url.get(normalized_url)
-        if previous is None or chunk.get("retrieval_score", 0) > previous.get("retrieval_score", 0):
-            verified_by_url[normalized_url] = dict(chunk)
+        verified_by_url.setdefault(normalized_url, []).append(dict(chunk))
+
+    for chunks in verified_by_url.values():
+        chunks.sort(key=lambda item: item.get("retrieval_score", 0), reverse=True)
 
     merged: list[dict] = []
-    seen_urls: set[str] = set()
+    used_verified_chunk_ids: set[str] = set()
+    verified_offsets: dict[str, int] = {}
+    primary_urls: set[str] = set()
     for primary_chunk in primary_chunks:
         normalized_url = normalize_url(primary_chunk.get("url", ""))
-        if not normalized_url or normalized_url in seen_urls:
+        if not normalized_url:
             continue
 
         merged_chunk = dict(primary_chunk)
-        verified_chunk = verified_by_url.get(normalized_url)
+        primary_urls.add(normalized_url)
+        verified_candidates = verified_by_url.get(normalized_url, [])
+        offset = verified_offsets.get(normalized_url, 0)
+        verified_chunk = verified_candidates[offset] if offset < len(verified_candidates) else None
         if verified_chunk:
             merged_chunk["title"] = verified_chunk.get("title") or merged_chunk.get("title")
             merged_chunk["chunk_text"] = verified_chunk.get("chunk_text") or merged_chunk.get("chunk_text")
             merged_chunk["verified"] = True
+            verified_offsets[normalized_url] = offset + 1
+            if verified_chunk.get("chunk_id"):
+                used_verified_chunk_ids.add(str(verified_chunk["chunk_id"]))
         merged.append(merged_chunk)
-        seen_urls.add(normalized_url)
 
-    for verified_chunk in sorted(verified_by_url.values(), key=lambda item: item.get("retrieval_score", 0), reverse=True):
+    remaining_verified_chunks = [
+        chunk
+        for chunks in verified_by_url.values()
+        for chunk in chunks
+        if str(chunk.get("chunk_id") or "") not in used_verified_chunk_ids
+    ]
+    for verified_chunk in sorted(remaining_verified_chunks, key=lambda item: item.get("retrieval_score", 0), reverse=True):
         normalized_url = normalize_url(verified_chunk.get("url", ""))
-        if normalized_url and normalized_url not in seen_urls:
+        if normalized_url and normalized_url not in primary_urls:
             merged.append(verified_chunk)
-            seen_urls.add(normalized_url)
+            primary_urls.add(normalized_url)
 
     return merged
 
@@ -570,7 +589,8 @@ def live_verify_retrieval(
         return retrieval_result.get("chunks", []), False
 
     top_urls = [chunk.get("url") for chunk in retrieval_result.get("chunks", []) if chunk.get("url")]
-    verified_pages = verify_pages(top_urls, max_pages=LIVE_VERIFY_LIMIT)
+    deep_document_verify = should_deep_verify_documents(retrieval_result)
+    verified_pages = verify_pages(top_urls, max_pages=LIVE_VERIFY_LIMIT, index_mode=deep_document_verify)
     if not verified_pages:
         return retrieval_result.get("chunks", []), False
 
@@ -590,6 +610,17 @@ def live_verify_retrieval(
             chunk["verified"] = True
 
     return merged_chunks[:6], True
+
+
+def is_document_source_url(url: str) -> bool:
+    return Path(urlparse(str(url)).path.lower()).suffix in LIVE_VERIFY_DOCUMENT_EXTENSIONS
+
+
+def should_deep_verify_documents(retrieval_result: dict) -> bool:
+    analysis = retrieval_result.get("analysis", {})
+    if not analysis.get("is_policy_question"):
+        return False
+    return any(is_document_source_url(chunk.get("url", "")) for chunk in retrieval_result.get("chunks", []))
 
 
 def refresh_confidence(retrieval_result: dict, chunks: list[dict]) -> None:
@@ -745,6 +776,59 @@ def load_runtime_index_document(vector_status: dict) -> dict:
     return load_index()
 
 
+def is_metadata_only_index_document(index_document: dict) -> bool:
+    try:
+        chunk_count = int(index_document.get("chunk_count") or 0)
+    except (TypeError, ValueError):
+        chunk_count = 0
+    return chunk_count > 0 and not index_document.get("chunks")
+
+
+def append_confidence_reason(reason: str | None, suffix: str) -> str:
+    reason = str(reason or "").strip()
+    if suffix in reason:
+        return reason
+    return f"{reason} {suffix}".strip()
+
+
+def should_retry_full_json_fallback(retrieval_result: dict, index_document: dict) -> bool:
+    return not retrieval_result.get("chunks") and is_metadata_only_index_document(index_document)
+
+
+def rank_with_full_json_fallback(
+    question: str,
+    index_document: dict,
+    selected_faculty: str,
+    top_k: int = 6,
+) -> dict:
+    retrieval_result = rank_index(question, index_document, selected_faculty, top_k=top_k)
+    if not should_retry_full_json_fallback(retrieval_result, index_document):
+        return retrieval_result
+
+    vector_error = retrieval_result.get("vector_error")
+    try:
+        full_index_document = load_index()
+        if not full_index_document.get("chunks"):
+            return retrieval_result
+        fallback_result = rank_lexical_index(question, full_index_document, selected_faculty, top_k=top_k)
+    except Exception as exc:
+        retrieval_result["fallback_error"] = compact_text(exc, 800)
+        retrieval_result["confidence_reason"] = append_confidence_reason(
+            retrieval_result.get("confidence_reason"),
+            "Fallback-ul lexical complet nu a putut incarca indexul JSON.",
+        )
+        return retrieval_result
+
+    fallback_result["retrieval_backend"] = "local_json_fallback"
+    if vector_error:
+        fallback_result["vector_error"] = vector_error
+    fallback_result["confidence_reason"] = append_confidence_reason(
+        fallback_result.get("confidence_reason"),
+        "Fallback lexical folosit dupa ce cautarea vectoriala nu a returnat fragmente utilizabile.",
+    )
+    return fallback_result
+
+
 @app.post("/chat")
 def chat():
     chat_request = parse_chat_request(request.get_json(silent=True) or {})
@@ -770,7 +854,7 @@ def chat():
     if cached_response is not None:
         return jsonify(cached_response)
 
-    retrieval_result = rank_index(effective_question, index_document, faculty["id"], top_k=6)
+    retrieval_result = rank_with_full_json_fallback(effective_question, index_document, faculty["id"], top_k=6)
     if needs_faculty_clarification(faculty, retrieval_result):
         response_payload = faculty_clarification_payload(faculty, retrieval_result)
         set_cached_response(cache_key, response_payload)

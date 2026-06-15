@@ -10,7 +10,14 @@ import requests
 from bs4 import BeautifulSoup
 from faculties import FACULTIES
 from live_fetch import clear_fetch_caches, extract_candidate_links, fetch_page, get_url_extension
-from page_index import bound_index_text, build_index_document, normalize_index_document, normalize_url, save_index
+from page_index import (
+    bound_index_text,
+    build_index_document,
+    normalize_index_document,
+    normalize_url,
+    page_text_limits,
+    save_index,
+)
 from vector_indexer import rebuild_vector_index
 
 PRIORITY_PATHS = (
@@ -210,10 +217,12 @@ def fetch_pages(urls: list[str], max_workers: int) -> list[dict]:
 
 
 def compact_page_for_index(page: dict) -> dict:
+    url = str(page.get("url") or "").strip()
+    max_text_chars, _ = page_text_limits(url)
     return {
-        "url": str(page.get("url") or "").strip(),
+        "url": url,
         "title": bound_index_text(page.get("title"), 500).strip(),
-        "text": bound_index_text(page.get("text")).strip(),
+        "text": bound_index_text(page.get("text"), max_text_chars).strip(),
         "type": str(page.get("type") or "unknown").strip(),
         "faculty_id": page.get("faculty_id"),
         "page_type": page.get("page_type"),
@@ -228,7 +237,7 @@ def describe_exception(exc: Exception) -> str:
 
 def safe_fetch_page(url: str) -> dict:
     try:
-        return fetch_page(url)
+        return fetch_page(url, index_mode=True)
     except Exception as exc:
         return {
             "url": url,

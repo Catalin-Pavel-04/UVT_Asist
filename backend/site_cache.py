@@ -24,9 +24,13 @@ def unique_urls(urls: list[str]) -> list[str]:
     return ordered
 
 
-def get_cached_page(url: str, now: float) -> dict | None:
+def verification_cache_key(url: str, index_mode: bool = False) -> str:
+    return f"{url}|index={int(index_mode)}"
+
+
+def get_cached_page(cache_key: str, now: float) -> dict | None:
     with STATE_LOCK:
-        cached = VERIFICATION_CACHE.get(url)
+        cached = VERIFICATION_CACHE.get(cache_key)
         if cached and now - cached["timestamp"] < VERIFICATION_CACHE_TTL:
             return {
                 **cached["page"],
@@ -36,12 +40,12 @@ def get_cached_page(url: str, now: float) -> dict | None:
     return None
 
 
-def store_cached_page(url: str, page: dict) -> dict:
+def store_cached_page(cache_key: str, page: dict) -> dict:
     verified_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     cached_page = {**page, "cache_hit": False, "verified_at": verified_at}
 
     with STATE_LOCK:
-        VERIFICATION_CACHE[url] = {
+        VERIFICATION_CACHE[cache_key] = {
             "timestamp": time.time(),
             "verified_at": verified_at,
             "page": page,
@@ -50,7 +54,7 @@ def store_cached_page(url: str, page: dict) -> dict:
     return cached_page
 
 
-def verify_pages(urls: list[str], max_pages: int = 2) -> list[dict]:
+def verify_pages(urls: list[str], max_pages: int = 2, index_mode: bool = False) -> list[dict]:
     selected_urls = unique_urls(urls)[:max_pages]
     if not selected_urls:
         return []
@@ -60,7 +64,7 @@ def verify_pages(urls: list[str], max_pages: int = 2) -> list[dict]:
     missing_urls: list[str] = []
 
     for url in selected_urls:
-        cached_page = get_cached_page(url, now)
+        cached_page = get_cached_page(verification_cache_key(url, index_mode), now)
         if cached_page:
             results[url] = cached_page
         else:
@@ -68,11 +72,11 @@ def verify_pages(urls: list[str], max_pages: int = 2) -> list[dict]:
 
     if missing_urls:
         with ThreadPoolExecutor(max_workers=min(VERIFICATION_FETCH_WORKERS, len(missing_urls))) as executor:
-            pages = list(executor.map(fetch_page, missing_urls))
+            pages = list(executor.map(lambda item: fetch_page(item, index_mode=index_mode), missing_urls))
 
         for url, page in zip(missing_urls, pages):
             if page.get("text"):
-                results[url] = store_cached_page(url, page)
+                results[url] = store_cached_page(verification_cache_key(url, index_mode), page)
 
     return [results[url] for url in selected_urls if url in results]
 

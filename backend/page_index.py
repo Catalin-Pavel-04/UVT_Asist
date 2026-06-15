@@ -16,7 +16,16 @@ DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 180
 MAX_PAGE_TEXT_CHARS = max(4000, int(os.getenv("INDEX_MAX_PAGE_TEXT_CHARS", "24000")))
 MAX_CHUNKS_PER_PAGE = max(1, int(os.getenv("INDEX_MAX_CHUNKS_PER_PAGE", "32")))
+DOCUMENT_MAX_PAGE_TEXT_CHARS = max(
+    MAX_PAGE_TEXT_CHARS,
+    int(os.getenv("INDEX_DOCUMENT_MAX_PAGE_TEXT_CHARS", "120000")),
+)
+DOCUMENT_MAX_CHUNKS_PER_PAGE = max(
+    MAX_CHUNKS_PER_PAGE,
+    int(os.getenv("INDEX_DOCUMENT_MAX_CHUNKS_PER_PAGE", "140")),
+)
 MAX_CHUNK_WORD_CHARS = max(200, int(os.getenv("INDEX_MAX_CHUNK_WORD_CHARS", "1000")))
+DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 _INDEX_CACHE: dict | None = None
 _INDEX_MTIME: float | None = None
@@ -74,12 +83,23 @@ def normalize_chunk_text(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip()
 
 
-def bound_index_text(value, max_chars: int = MAX_PAGE_TEXT_CHARS) -> str:
+def bound_index_text(value, max_chars: int | None = MAX_PAGE_TEXT_CHARS) -> str:
     if value is None:
         return ""
-    if isinstance(value, str):
-        return value[:max_chars]
-    return str(value)[:max_chars]
+    text = value if isinstance(value, str) else str(value)
+    if max_chars is None:
+        return text
+    return text[:max_chars]
+
+
+def is_document_url(url: str) -> bool:
+    return Path(urlparse(str(url)).path.lower()).suffix in DOCUMENT_EXTENSIONS
+
+
+def page_text_limits(url: str) -> tuple[int, int]:
+    if is_document_url(url):
+        return DOCUMENT_MAX_PAGE_TEXT_CHARS, DOCUMENT_MAX_CHUNKS_PER_PAGE
+    return MAX_PAGE_TEXT_CHARS, MAX_CHUNKS_PER_PAGE
 
 
 def normalize_host(url: str) -> str:
@@ -151,11 +171,12 @@ def chunk_text(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     overlap: int = DEFAULT_CHUNK_OVERLAP,
     max_chunks: int = MAX_CHUNKS_PER_PAGE,
+    max_text_chars: int | None = MAX_PAGE_TEXT_CHARS,
 ) -> list[str]:
     chunk_size = max(200, int(chunk_size or DEFAULT_CHUNK_SIZE))
     overlap = max(0, min(int(overlap or 0), chunk_size // 2))
     max_chunks = max(1, int(max_chunks or MAX_CHUNKS_PER_PAGE))
-    cleaned = re.sub(r"\s+", " ", bound_index_text(text)).strip()
+    cleaned = re.sub(r"\s+", " ", bound_index_text(text, max_text_chars)).strip()
     if not cleaned:
         return []
 
@@ -219,7 +240,8 @@ def build_chunk_entries_from_pages(
 
     for page in pages:
         url = normalize_url(page.get("url", ""))
-        text = bound_index_text(page.get("text")).strip()
+        max_text_chars, max_chunks = page_text_limits(url)
+        text = bound_index_text(page.get("text"), max_text_chars).strip()
         if not url or not text:
             continue
 
@@ -228,7 +250,10 @@ def build_chunk_entries_from_pages(
         detected_page_type = detect_page_type(url, title, text)
         page_type = detected_page_type if detected_page_type != "general" else page.get("page_type") or "general"
 
-        for position, chunk in enumerate(chunk_text(text), start=1):
+        for position, chunk in enumerate(
+            chunk_text(text, max_chunks=max_chunks, max_text_chars=max_text_chars),
+            start=1,
+        ):
             chunks.append({
                 "chunk_id": _build_chunk_id(url, position, chunk),
                 "faculty_id": faculty_id,

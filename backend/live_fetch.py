@@ -4,6 +4,7 @@ import os
 import re
 import threading
 import time
+import logging
 from io import BytesIO
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urljoin, urlparse
@@ -29,9 +30,32 @@ try:
 except ModuleNotFoundError:
     PdfReader = None
 
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 HEADERS = {"User-Agent": "UVT_Asist/1.0"}
-MAX_TEXT_LENGTH = 16000
-MAX_PDF_PAGES = 12
+
+
+def env_int(name: str, default: str, minimum: int) -> int:
+    try:
+        value = int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(minimum, value)
+
+
+MAX_TEXT_LENGTH = env_int("LIVE_FETCH_MAX_TEXT_LENGTH", "16000", 4000)
+MAX_PDF_PAGES = env_int("LIVE_FETCH_MAX_PDF_PAGES", "12", 1)
+INDEX_HTML_MAX_TEXT_LENGTH = max(
+    MAX_TEXT_LENGTH,
+    env_int("INDEX_HTML_FETCH_TEXT_CHARS", "24000", MAX_TEXT_LENGTH),
+)
+INDEX_DOCUMENT_MAX_TEXT_LENGTH = max(
+    MAX_TEXT_LENGTH,
+    env_int("INDEX_DOCUMENT_FETCH_TEXT_CHARS", "120000", MAX_TEXT_LENGTH),
+)
+INDEX_DOCUMENT_MAX_PDF_PAGES = max(
+    MAX_PDF_PAGES,
+    env_int("INDEX_DOCUMENT_FETCH_PDF_PAGES", "80", MAX_PDF_PAGES),
+)
 CACHE_TTL = max(60, int(os.getenv("LIVE_FETCH_CACHE_TTL", "300")))
 
 BAD_EXTENSIONS = (".gif", ".svg", ".zip", ".rar", ".doc", ".xls", ".xlsx", ".ppt", ".pptx")
@@ -122,8 +146,8 @@ def get_url_extension(url: str) -> str:
     return PurePosixPath(urlparse(url).path.lower()).suffix
 
 
-def truncate_text(text: str) -> str:
-    return normalize_whitespace(text)[:MAX_TEXT_LENGTH]
+def truncate_text(text: str, max_length: int = MAX_TEXT_LENGTH) -> str:
+    return normalize_whitespace(text)[:max(0, int(max_length or MAX_TEXT_LENGTH))]
 
 
 def is_html_response(content_type: str, url: str) -> bool:
@@ -134,6 +158,10 @@ def is_html_response(content_type: str, url: str) -> bool:
 def is_pdf_response(content_type: str, url: str) -> bool:
     content_type = (content_type or "").lower()
     return "application/pdf" in content_type or get_url_extension(url) == ".pdf"
+
+
+def looks_like_pdf_content(content: bytes) -> bool:
+    return bytes(content or b"").lstrip().startswith(b"%PDF-")
 
 
 def is_docx_response(content_type: str, url: str) -> bool:
@@ -168,32 +196,40 @@ def clean_html_text(html: str) -> str:
     return normalize_whitespace(soup.get_text(separator=" "))
 
 
-def extract_pdf_text(content: bytes) -> str:
+def extract_pdf_text(
+    content: bytes,
+    max_text_length: int = MAX_TEXT_LENGTH,
+    max_pdf_pages: int = MAX_PDF_PAGES,
+) -> str:
     if PdfReader is None:
         return ""
 
     reader = PdfReader(BytesIO(content))
     pages: list[str] = []
-    for page in reader.pages[:MAX_PDF_PAGES]:
+    for page in reader.pages[:max(1, int(max_pdf_pages or MAX_PDF_PAGES))]:
         page_text = page.extract_text() or ""
         if page_text.strip():
             pages.append(page_text)
-        if sum(len(item) for item in pages) >= MAX_TEXT_LENGTH:
+        if sum(len(item) for item in pages) >= max_text_length:
             break
 
-    return truncate_text(" ".join(pages))
+    return truncate_text(" ".join(pages), max_text_length)
 
 
-def extract_pdf_text_with_fallback(content: bytes) -> str:
-    text = extract_pdf_text(content)
+def extract_pdf_text_with_fallback(
+    content: bytes,
+    max_text_length: int = MAX_TEXT_LENGTH,
+    max_pdf_pages: int = MAX_PDF_PAGES,
+) -> str:
+    text = extract_pdf_text(content, max_text_length=max_text_length, max_pdf_pages=max_pdf_pages)
     if should_run_pdf_ocr(text):
         ocr_text = run_paddle_ocr_on_pdf(content)
         if ocr_text:
-            return truncate_text(ocr_text)
+            return truncate_text(ocr_text, max_text_length)
     return text
 
 
-def extract_docx_text(content: bytes) -> str:
+def extract_docx_text(content: bytes, max_text_length: int = MAX_TEXT_LENGTH) -> str:
     if Document is None:
         return ""
 
@@ -205,14 +241,14 @@ def extract_docx_text(content: bytes) -> str:
             if row_text:
                 parts.append(row_text)
 
-    return truncate_text(" ".join(parts))
+    return truncate_text(" ".join(parts), max_text_length)
 
 
-def extract_image_text(content: bytes, url: str) -> str:
+def extract_image_text(content: bytes, url: str, max_text_length: int = MAX_TEXT_LENGTH) -> str:
     if not is_paddle_ocr_enabled():
         return ""
     extension = get_url_extension(url) or ".png"
-    return truncate_text(run_paddle_ocr_on_image(content, extension) or "")
+    return truncate_text(run_paddle_ocr_on_image(content, extension) or "", max_text_length)
 
 
 def extract_filename_from_content_disposition(content_disposition: str) -> str:
@@ -236,30 +272,77 @@ def build_title_from_url(url: str, fallback: str = "") -> str:
     return path_name or fallback.strip() or url
 
 
-def extract_response_text(response: requests.Response, final_url: str) -> tuple[str, str, str]:
+def response_limits(
+    content_type: str,
+    final_url: str,
+    index_mode: bool = False,
+    max_text_length: int | None = None,
+    max_pdf_pages: int | None = None,
+) -> tuple[int, int]:
+    document_response = (
+        is_pdf_response(content_type, final_url)
+        or is_docx_response(content_type, final_url)
+        or is_text_response(content_type, final_url)
+    )
+    if index_mode and document_response:
+        text_default = INDEX_DOCUMENT_MAX_TEXT_LENGTH
+    elif index_mode:
+        text_default = INDEX_HTML_MAX_TEXT_LENGTH
+    else:
+        text_default = MAX_TEXT_LENGTH
+    pdf_default = INDEX_DOCUMENT_MAX_PDF_PAGES if index_mode and is_pdf_response(content_type, final_url) else MAX_PDF_PAGES
+    return (
+        max(1000, int(max_text_length or text_default)),
+        max(1, int(max_pdf_pages or pdf_default)),
+    )
+
+
+def extract_response_text(
+    response: requests.Response,
+    final_url: str,
+    max_text_length: int = MAX_TEXT_LENGTH,
+    max_pdf_pages: int = MAX_PDF_PAGES,
+) -> tuple[str, str, str]:
     content_type = response.headers.get("Content-Type", "")
     content_disposition = response.headers.get("Content-Disposition", "")
+
+    title = build_title_from_url(final_url, fallback=content_disposition)
+    if is_pdf_response(content_type, final_url) and not looks_like_pdf_content(response.content):
+        return title, "", "invalid_pdf"
 
     if is_html_response(content_type, final_url):
         soup = BeautifulSoup(response.text, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else build_title_from_url(final_url)
-        return title, clean_html_text(response.text), "html"
+        return title, truncate_text(clean_html_text(response.text), max_text_length), "html"
 
-    title = build_title_from_url(final_url, fallback=content_disposition)
     if is_pdf_response(content_type, final_url):
-        return title, extract_pdf_text_with_fallback(response.content), "pdf"
+        return title, extract_pdf_text_with_fallback(
+            response.content,
+            max_text_length=max_text_length,
+            max_pdf_pages=max_pdf_pages,
+        ), "pdf"
     if is_docx_response(content_type, final_url):
-        return title, extract_docx_text(response.content), "docx"
+        return title, extract_docx_text(response.content, max_text_length=max_text_length), "docx"
     if is_text_response(content_type, final_url):
-        return title, truncate_text(response.text), "text"
+        return title, truncate_text(response.text, max_text_length), "text"
     if is_ocr_image_response(content_type, final_url):
-        return title, extract_image_text(response.content, final_url), "image"
+        return title, extract_image_text(response.content, final_url, max_text_length=max_text_length), "image"
 
     return title, "", "unknown"
 
 
-def fetch_page(url: str, timeout: int = 10) -> dict:
-    cache_key = f"{url}|ocr={int(is_paddle_ocr_enabled())}"
+def fetch_page(
+    url: str,
+    timeout: int = 10,
+    *,
+    index_mode: bool = False,
+    max_text_length: int | None = None,
+    max_pdf_pages: int | None = None,
+) -> dict:
+    cache_key = (
+        f"{url}|ocr={int(is_paddle_ocr_enabled())}|index={int(index_mode)}|"
+        f"chars={max_text_length or ''}|pdf_pages={max_pdf_pages or ''}"
+    )
     cached = get_cached(PAGE_CACHE, cache_key)
     if cached is not None:
         return cached
@@ -268,11 +351,23 @@ def fetch_page(url: str, timeout: int = 10) -> dict:
         response = get_session().get(url, timeout=(2, timeout))
         response.raise_for_status()
         final_url = response.url or url
-        title, text, response_type = extract_response_text(response, final_url)
+        effective_text_length, effective_pdf_pages = response_limits(
+            response.headers.get("Content-Type", ""),
+            final_url,
+            index_mode=index_mode,
+            max_text_length=max_text_length,
+            max_pdf_pages=max_pdf_pages,
+        )
+        title, text, response_type = extract_response_text(
+            response,
+            final_url,
+            max_text_length=effective_text_length,
+            max_pdf_pages=effective_pdf_pages,
+        )
         page = {
             "url": final_url,
             "title": title,
-            "text": truncate_text(text),
+            "text": truncate_text(text, effective_text_length),
             "type": response_type,
         }
     except Exception as exc:

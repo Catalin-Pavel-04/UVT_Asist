@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 import build_index as build_index_module
 from build_index import discover_sitemap_urls
+from page_index import MAX_PAGE_TEXT_CHARS
 
 
 class BuildIndexTests(unittest.TestCase):
@@ -49,7 +50,8 @@ class BuildIndexTests(unittest.TestCase):
         self.assertEqual(urls, ["https://info.uvt.ro/a/", "https://info.uvt.ro/b/", "https://info.uvt.ro/c/"])
 
     def test_fetch_pages_keeps_indexing_when_one_url_crashes(self) -> None:
-        def fake_fetch_page(url: str) -> dict:
+        def fake_fetch_page(url: str, **kwargs) -> dict:
+            self.assertTrue(kwargs.get("index_mode"))
             if url.endswith("/bad"):
                 raise RuntimeError()
             return {"url": url, "title": url, "text": "continut oficial", "type": "html"}
@@ -63,6 +65,17 @@ class BuildIndexTests(unittest.TestCase):
         self.assertEqual(pages[0]["text"], "continut oficial")
         self.assertEqual(pages[1]["type"], "error")
         self.assertEqual(pages[1]["error"], "RuntimeError")
+
+    def test_compact_page_for_index_uses_document_text_limit(self) -> None:
+        marker = "DOCUMENTE_LATE_MARKER"
+        page = build_index_module.compact_page_for_index({
+            "url": "https://uvt.ro/wp-content/uploads/metodologie.pdf",
+            "title": "Metodologie burse",
+            "text": ("a" * (MAX_PAGE_TEXT_CHARS + 2000)) + marker,
+            "type": "pdf",
+        })
+
+        self.assertIn(marker, page["text"])
 
     def test_build_index_emits_progress_events(self) -> None:
         events: list[dict] = []

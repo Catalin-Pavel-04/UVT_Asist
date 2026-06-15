@@ -365,6 +365,47 @@ class AppTests(unittest.TestCase):
         self.assertEqual(chunks, retrieval_result["chunks"])
         self.assertFalse(verified)
 
+    def test_live_verification_deep_fetches_policy_documents(self) -> None:
+        retrieval_result = {
+            "analysis": {"intent": "regulamente", "is_policy_question": True},
+            "chunks": [{"url": "https://uvt.ro/metodologie-burse.pdf", "chunk_text": "Burse"}],
+        }
+
+        with patch.object(app_module, "verify_pages", return_value=[]) as verify_pages:
+            chunks, verified = app_module.live_verify_retrieval("ce acte trebuie", "uvt", retrieval_result, {"chunks": []})
+
+        self.assertEqual(chunks, retrieval_result["chunks"])
+        self.assertFalse(verified)
+        self.assertTrue(verify_pages.call_args.kwargs["index_mode"])
+
+    def test_merge_ranked_chunks_preserves_multiple_chunks_from_same_primary_url(self) -> None:
+        primary_chunks = [
+            {"chunk_id": "old-1", "url": "https://uvt.ro/doc.pdf", "title": "Doc", "chunk_text": "old one"},
+            {"chunk_id": "old-2", "url": "https://uvt.ro/doc.pdf", "title": "Doc", "chunk_text": "old two"},
+        ]
+        verified_chunks = [
+            {
+                "chunk_id": "new-1",
+                "url": "https://uvt.ro/doc.pdf",
+                "title": "Doc verificat",
+                "chunk_text": "documentele necesare",
+                "retrieval_score": 90,
+            },
+            {
+                "chunk_id": "new-2",
+                "url": "https://uvt.ro/doc.pdf",
+                "title": "Doc verificat",
+                "chunk_text": "certificat de divort",
+                "retrieval_score": 80,
+            },
+        ]
+
+        merged = app_module.merge_ranked_chunks(primary_chunks, verified_chunks)
+
+        self.assertEqual(len(merged), 2)
+        self.assertEqual([chunk["chunk_text"] for chunk in merged], ["documentele necesare", "certificat de divort"])
+        self.assertTrue(all(chunk["verified"] for chunk in merged))
+
     def test_chat_uses_metadata_only_when_qdrant_is_ready(self) -> None:
         retrieval_result = {
             "analysis": {
@@ -410,6 +451,80 @@ class AppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["retrieval_backend"], "qdrant")
+
+    def test_chat_retries_full_json_when_metadata_vector_search_has_no_chunks(self) -> None:
+        empty_vector_result = {
+            "analysis": {
+                "intent": "orar",
+                "is_policy_question": False,
+                "corrected_question": "orar",
+                "tokens": ["orar"],
+                "expanded_tokens": ["orar"],
+                "corrections": [],
+            },
+            "chunks": [],
+            "confidence": "low",
+            "confidence_score": 10,
+            "confidence_reason": "Qdrant nu a returnat fragmente.",
+            "retrieval_backend": "qdrant",
+        }
+        lexical_result = {
+            "analysis": empty_vector_result["analysis"],
+            "chunks": [
+                {
+                    "chunk_id": "schedule",
+                    "faculty_id": "info",
+                    "page_type": "orar",
+                    "title": "Orare",
+                    "url": "https://info.uvt.ro/orare",
+                    "chunk_text": "Orar oficial.",
+                    "retrieval_score": 120,
+                    "match_signals": ["schedule_exact_path"],
+                }
+            ],
+            "confidence": "high",
+            "confidence_score": 95,
+            "confidence_reason": "Potrivire lexicala.",
+            "retrieval_backend": "local_json_lexical",
+        }
+        full_index = {
+            "schema_version": 2,
+            "built_at": "test",
+            "page_count": 1,
+            "chunk_count": 1,
+            "chunks": lexical_result["chunks"],
+        }
+
+        with (
+            patch.object(app_module, "get_vector_index_status", return_value={"available": True, "points_count": 1}),
+            patch.object(app_module, "get_index_status", return_value={
+                "schema_version": 2,
+                "built_at": "test",
+                "page_count": 1,
+                "chunk_count": 1,
+            }),
+            patch.object(app_module, "rank_index", return_value=empty_vector_result),
+            patch.object(app_module, "load_index", return_value=full_index) as load_index,
+            patch.object(app_module, "rank_lexical_index", return_value=lexical_result) as rank_lexical,
+            patch.object(app_module, "live_verify_retrieval", return_value=(lexical_result["chunks"], False)),
+            patch.object(app_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
+        ):
+            response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["retrieval_backend"], "local_json_fallback")
+        self.assertEqual(payload["evidence"]["top_source"]["url"], "https://info.uvt.ro/orare")
+        load_index.assert_called_once()
+        rank_lexical.assert_called_once()
+
+    def test_cache_key_changes_with_chat_cache_version(self) -> None:
+        with patch.object(app_module, "CHAT_CACHE_VERSION", "contract-a"):
+            first_key = app_module.build_cache_key("uvt", "orar", [], "built", 1)
+        with patch.object(app_module, "CHAT_CACHE_VERSION", "contract-b"):
+            second_key = app_module.build_cache_key("uvt", "orar", [], "built", 1)
+
+        self.assertNotEqual(first_key, second_key)
 
     def test_chat_reports_startup_indexing_without_retrieval(self) -> None:
         original_indexing_state = app_module.get_indexing_state()

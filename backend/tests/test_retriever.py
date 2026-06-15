@@ -41,6 +41,36 @@ class RetrieverTests(unittest.TestCase):
 
         self.assertIn("2", analysis.tokens)
 
+    def test_social_document_query_does_not_rewrite_doar_to_dosar(self) -> None:
+        analysis = analyze_query(
+            "Daca provin dintr-o familie monoparentala si doar un parinte ma ajuta financiar, ce acte trebuie?"
+        )
+
+        self.assertNotIn("doar->dosar", analysis.corrections)
+        self.assertTrue(analysis.is_policy_question)
+        self.assertIn(analysis.intent, {"burse", "regulamente"})
+        self.assertIn("burse", analysis.expanded_tokens)
+        self.assertIn("documente", analysis.expanded_tokens)
+        self.assertNotIn("cumulare", analysis.expanded_tokens)
+
+        embedding_texts = retriever_module.build_query_embedding_texts(
+            "Daca provin dintr-o familie monoparentala si doar un parinte ma ajuta financiar, ce acte trebuie?",
+            analysis,
+        )
+        self.assertGreater(len(embedding_texts), 1)
+        self.assertIn("documentele necesare", embedding_texts[1].lower())
+
+    def test_housing_social_dossier_query_is_policy_scoped(self) -> None:
+        analysis = analyze_query(
+            "Vreau sa imi depun dosarul pentru cazare, dar sunt orfan de un parinte, ce acte am nevoie?"
+        )
+
+        self.assertEqual(analysis.intent, "regulamente")
+        self.assertTrue(analysis.is_policy_question)
+        self.assertEqual(analysis.page_type_preferences[:2], ("regulamente", "studenti"))
+        self.assertIn("cazare", analysis.expanded_tokens)
+        self.assertIn("documente", analysis.expanded_tokens)
+
     def test_volunteering_credit_submission_is_not_admission_intent(self) -> None:
         analysis = analyze_query("Cum se depune dosarul pentru creditele de voluntariat?")
 
@@ -228,6 +258,85 @@ class RetrieverTests(unittest.TestCase):
 
         self.assertEqual(result["chunks"][0]["chunk_id"], "uvt-methodology")
         self.assertIn("policy:uvt_scholarship_methodology", result["chunks"][0]["match_signals"])
+
+    def test_social_document_query_prefers_scholarship_methodology_over_generic_financial_aid(self) -> None:
+        index_document = make_index(
+            [
+                {
+                    "chunk_id": "euro-200",
+                    "faculty_id": "uvt",
+                    "page_type": "studenti",
+                    "title": "Programul Euro 200 privind acordarea unui ajutor financiar studentilor",
+                    "url": "https://uvt.ro/educatie/programul-euro-200",
+                    "chunk_text": "Ajutor financiar pentru achizitionarea de calculatoare. Studentii depun cerere si acte.",
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+                {
+                    "chunk_id": "social-scholarship-docs",
+                    "faculty_id": "uvt",
+                    "page_type": "regulamente",
+                    "title": "Metodologie privind acordarea burselor",
+                    "url": "https://uvt.ro/metodologie-burse.pdf",
+                    "chunk_text": (
+                        "Burse pentru sprijin social. Sunt eligibili studentii orfani si studentii care provin "
+                        "din familii monoparentale. Anexa nr. 2 documentele necesare pentru bursele sociale: "
+                        "cerere, documente justificative privind veniturile, certificat de divort sau hotarare judecatoreasca."
+                    ),
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+            ],
+            built_at="social-documents-test",
+        )
+
+        result = rank_lexical_index(
+            "Daca provin dintr-o familie monoparentala si doar un parinte ma ajuta financiar, ce acte trebuie?",
+            index_document,
+            "uvt",
+            top_k=2,
+        )
+
+        self.assertEqual(result["chunks"][0]["chunk_id"], "social-scholarship-docs")
+        self.assertIn("policy:social_documents", result["chunks"][0]["match_signals"])
+        self.assertIn("policy:social_scholarship_methodology", result["chunks"][0]["match_signals"])
+
+    def test_housing_orphan_query_prefers_housing_regulation(self) -> None:
+        index_document = make_index(
+            [
+                {
+                    "chunk_id": "housing-page",
+                    "faculty_id": "uvt",
+                    "page_type": "studenti",
+                    "title": "Cazare in caminele UVT",
+                    "url": "https://uvt.ro/educatie/campus-uvt/cazare-in-caminele-uvt",
+                    "chunk_text": "Informatii generale despre cazare in caminele UVT.",
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+                {
+                    "chunk_id": "housing-regulation",
+                    "faculty_id": "uvt",
+                    "page_type": "regulamente",
+                    "title": "Regulament privind cazarea in caminele UVT",
+                    "url": "https://uvt.ro/regulament-cazare.pdf",
+                    "chunk_text": (
+                        "Criterii sociale pentru cazare. Studentii orfani de un parinte primesc punctaj "
+                        "la situatia familiala. Dosarul de cazare include cererea de cazare si documente "
+                        "justificative care dovedesc cazul social."
+                    ),
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+            ],
+            built_at="housing-documents-test",
+        )
+
+        result = rank_lexical_index(
+            "Vreau sa imi depun dosarul pentru cazare, dar sunt orfan de un parinte, ce acte am nevoie?",
+            index_document,
+            "uvt",
+            top_k=2,
+        )
+
+        self.assertEqual(result["chunks"][0]["chunk_id"], "housing-regulation")
+        self.assertIn("policy:housing_documents", result["chunks"][0]["match_signals"])
 
 
 if __name__ == "__main__":

@@ -26,12 +26,13 @@ INTENT_KEYWORDS = {
     "regulamente": (
         "regulament", "regulamente", "metodologie", "metodologii", "procedura", "proceduri",
         "credite voluntariat", "credite de voluntariat", "portofoliu", "portofolii", "voluntariat",
+        "acte", "documente", "documente justificative", "dosar social",
     ),
     "studenti": (
         "student", "studenti", "cazare", "camin", "camine", "taxa", "taxe", "studentweb",
         "calendar academic", "structura anului", "an universitar", "anul universitar",
         "inceperea anului", "credite voluntariat", "credite de voluntariat", "portofoliu", "portofolii",
-        "voluntariat",
+        "voluntariat", "acte cazare", "dosar cazare",
     ),
 }
 
@@ -52,11 +53,11 @@ PAGE_HINTS = {
     "admitere": ("admitere", "inscriere"),
     "regulamente": (
         "regulamente", "regulament", "metodologie", "metodologii", "procedura", "proceduri",
-        "voluntariat", "credite-voluntariat", "credite voluntariat",
+        "voluntariat", "credite-voluntariat", "credite voluntariat", "documente", "acte",
     ),
     "studenti": (
         "studenti", "studentweb", "cazare", "camine", "camin", "taxe", "calendar", "structura anului",
-        "voluntariat", "credite-voluntariat", "credite voluntariat", "portofoliu",
+        "voluntariat", "credite-voluntariat", "credite voluntariat", "portofoliu", "dosar-cazare",
     ),
 }
 
@@ -122,24 +123,45 @@ TOKEN_ALIASES = {
     "portofoliilor": "portofoliu",
     "portofoliului": "portofoliu",
     "voluntariatului": "voluntariat",
+    "actele": "acte",
+    "documentele": "documente",
+    "documentelor": "documente",
+    "justificative": "justificativ",
+    "parintii": "parinti",
+    "parintilor": "parinti",
+    "parintele": "parinte",
+    "orfanii": "orfani",
+    "orfanilor": "orfani",
+    "monoparentale": "monoparentala",
+    "divortati": "divort",
+    "divortata": "divort",
+    "divortat": "divort",
+    "veniturilor": "venituri",
+    "venitului": "venituri",
+    "sociala": "social",
+    "sociale": "social",
 }
 
 STOPWORDS = {
     "a", "ai", "al", "ale", "am", "ar", "as", "asta", "ca", "care", "ce", "cea", "cele", "cel",
-    "cei", "cum", "cu", "de", "din", "doar", "e", "este", "fi", "fie", "gasesc", "in", "la",
+    "cei", "cum", "cu", "daca", "dar", "de", "din", "doar", "e", "este", "fi", "fie", "gasesc", "in", "la",
     "mai", "ma", "mi", "o", "pe", "pentru", "pot", "poate", "sa", "sau", "se", "si", "sunt",
-    "cand", "spune", "spune-mi", "te", "rog", "despre", "ceva", "imi", "pt", "un", "unei", "unui", "unde", "vreau",
+    "am", "iar", "le", "nu", "cand", "spune", "spune-mi", "te", "rog", "despre", "ceva", "imi", "pt",
+    "un", "unei", "unui", "unde", "vreau",
 }
 
 DOMAIN_VOCABULARY = {
     "admitere", "adresa", "anexa", "beneficia", "bursa", "burse", "candidat", "cazare",
-    "adeverinta", "contact", "cumulare", "depune", "depunere", "dosar", "email", "evaluare",
+    "acte", "adeverinta", "certificat", "certificate", "contact", "cumulare", "depune", "depunere",
+    "document", "documente", "dosar", "email", "evaluare", "justificativ",
     "facultate", "formular", "informatica", "inscriere", "informatii", "informatie", "metodologie",
     "metodologii", "orar", "orare", "procedura",
     "model", "portofoliu", "portofolii", "proceduri", "proba", "program", "regulament", "regulamente",
     "raport", "recunoastere", "secretariat", "student", "studenti", "subiect", "subiecte", "voluntariat",
     "an", "calendar", "camin", "camine", "incepe", "inceperea", "parola", "studentweb",
     "structura", "taxa", "taxe", "telefon", "universitar", "uvt", "wifi", "credit", "credite",
+    "familie", "financiar", "monoparentala", "orfan", "orfani", "parinte", "parinti", "social",
+    "sociale", "sprijin", "venit", "venituri", "divort", "sentinta", "deces", "intretinere",
 }
 
 POLICY_PHRASES = (
@@ -156,6 +178,10 @@ POLICY_PHRASES = (
     "cumulare",
     "cumuleaza",
     "2 burse",
+    "ce acte",
+    "acte trebuie",
+    "acte am nevoie",
+    "documente justificative",
 )
 
 POLICY_DOCUMENT_TERMS = ("regulament", "metodologie", "procedura", "anexa", "hotarare")
@@ -164,6 +190,33 @@ CUMULATION_TERMS = ("cumulare", "cumuleaza", "cumula", "art 5", "art. 5")
 VOLUNTEERING_TERMS = ("voluntariat", "voluntar", "voluntari", "ong", "portofoliu", "portofolii")
 VOLUNTEERING_CREDIT_TERMS = ("credite", "credit", "creditelor", "transferabile")
 SUBMISSION_TERMS = ("depune", "depunere", "depunerea", "portofoliu", "portofolii", "formular", "dosar")
+DOCUMENT_REQUEST_TERMS = (
+    "acte", "document", "documente", "justificativ", "justificative", "certificat",
+    "certificate", "adeverinta", "dosar", "formular",
+)
+SOCIAL_CONTEXT_TERMS = (
+    "orfan", "orfani", "monoparentala", "monoparental", "familie", "parinte", "parinti",
+    "divort", "deces", "social", "sociale", "venit", "venituri", "financiar", "intretinere",
+    "handicap", "dizabilitati", "vulnerabil",
+)
+STRONG_SOCIAL_CONTEXT_TERMS = (
+    "orfan", "orfani", "monoparentala", "monoparental", "familie", "parinte", "parinti",
+    "divort", "deces", "social", "sociale", "venit", "venituri", "intretinere",
+    "handicap", "dizabilitati", "vulnerabil",
+)
+HOUSING_TERMS = ("cazare", "camin", "camine")
+OFF_TOPIC_SOCIAL_POLICY_TERMS = (
+    "recunoasterea-perioadelor",
+    "recunoastere perioadelor",
+    "mobilitate",
+    "mobilitati",
+    "erasmus",
+    "euro-200",
+    "calculator",
+    "calculatoare",
+    "tabere",
+    "tabara",
+)
 VECTOR_SEARCH_LIMIT = max(8, int(os.getenv("VECTOR_SEARCH_LIMIT", "18")))
 SEMANTIC_SCORE_WEIGHT = float(os.getenv("SEMANTIC_SCORE_WEIGHT", "58"))
 VECTOR_LEXICAL_BACKFILL_ENABLED = os.getenv("VECTOR_LEXICAL_BACKFILL_ENABLED", "false").strip().lower() in {
@@ -174,6 +227,28 @@ OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS = max(4, int(os.getenv("OLLAMA_QUERY_ANALYSIS
 
 _PREPARED_INDEX_CACHE: dict | None = None
 _PREPARED_INDEX_SIGNATURE: tuple | None = None
+
+
+def _has_document_request(tokens: Iterable[str]) -> bool:
+    return bool(set(tokens) & set(DOCUMENT_REQUEST_TERMS))
+
+
+def _has_social_context(tokens: Iterable[str]) -> bool:
+    return bool(set(tokens) & set(SOCIAL_CONTEXT_TERMS))
+
+
+def _has_housing_context(tokens: Iterable[str]) -> bool:
+    return bool(set(tokens) & set(HOUSING_TERMS))
+
+
+def _is_social_document_question(tokens: Iterable[str]) -> bool:
+    token_set = set(tokens)
+    return _has_document_request(token_set) and _has_social_context(token_set)
+
+
+def _is_housing_document_question(tokens: Iterable[str]) -> bool:
+    token_set = set(tokens)
+    return _has_document_request(token_set) and _has_housing_context(token_set)
 
 
 @dataclass(frozen=True)
@@ -230,6 +305,9 @@ def correct_query_terms(question: str) -> tuple[str, list[str]]:
 
     for token in tokenize(question, remove_stopwords=False):
         replacement = token
+        if token in STOPWORDS:
+            corrected_tokens.append(replacement)
+            continue
         if token not in DOMAIN_VOCABULARY and len(token) >= 4 and not token.isdigit():
             matches = get_close_matches(token, DOMAIN_VOCABULARY, n=1, cutoff=0.82)
             if matches:
@@ -269,6 +347,15 @@ def _score_intents(question: str, tokens: Iterable[str]) -> dict[str, int]:
         scores["studenti"] += 8
         if not ({"admitere", "inscriere", "candidat"} & token_set or "dosar de admitere" in question_text):
             scores["admitere"] -= 10
+    if _is_housing_document_question(token_set):
+        scores["regulamente"] += 10
+        scores["studenti"] += 8
+        scores["admitere"] -= 6
+    elif _is_social_document_question(token_set):
+        scores["regulamente"] += 10
+        scores["burse"] += 8
+        scores["studenti"] += 4
+        scores["admitere"] -= 6
     if any(phrase in question_text for phrase in POLICY_PHRASES):
         scores["regulamente"] += 5
 
@@ -294,6 +381,8 @@ def detect_policy_question(question: str, intent: str) -> bool:
         return True
     if {"regulament", "regulamente", "metodologie", "procedura", "proceduri"} & tokens:
         return True
+    if _is_housing_document_question(tokens) or _is_social_document_question(tokens):
+        return True
     if {"burse", "bursa"} & tokens and {"2", "cumulare", "beneficia", "conditii", "eligibil"} & tokens:
         return True
 
@@ -311,6 +400,10 @@ def build_page_type_preferences(intent: str, is_policy_question: bool, tokens: I
     token_set = set(tokens)
     if is_volunteering_credit_query(" ".join(token_set), token_set):
         return ("regulamente", "studenti", "general")
+    if _is_housing_document_question(token_set):
+        return ("regulamente", "studenti", "general")
+    if _is_social_document_question(token_set):
+        return ("regulamente", "burse", "studenti", "general")
     if is_policy_question:
         if {"burse", "bursa"} & token_set:
             return ("regulamente", "burse", "studenti", "general")
@@ -323,6 +416,7 @@ def build_page_type_preferences(intent: str, is_policy_question: bool, tokens: I
 
 def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: bool) -> tuple[str, ...]:
     expanded = list(dict.fromkeys(tokens))
+    original_token_set = set(expanded)
     synonyms = {
         "orar": ("orar", "orare"),
         "burse": ("bursa", "burse", "burselor"),
@@ -352,11 +446,35 @@ def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: 
             if token not in expanded:
                 expanded.append(token)
 
+    if _is_housing_document_question(expanded_set):
+        for token in ("cazare", "camin", "camine", "documente", "justificativ", "social", "orfan", "monoparentala"):
+            if token not in expanded:
+                expanded.append(token)
+
+    if _is_social_document_question(expanded_set) and not _has_housing_context(expanded_set):
+        for token in (
+            "burse",
+            "bursa",
+            "social",
+            "sociale",
+            "sprijin",
+            "documente",
+            "justificativ",
+            "orfan",
+            "monoparentala",
+            "familie",
+            "venituri",
+        ):
+            if token not in expanded:
+                expanded.append(token)
+
     if is_policy_question:
         for token in ("regulament", "metodologie", "procedura", "anexa", "conditii", "eligibil"):
             if token not in expanded:
                 expanded.append(token)
-        if {"burse", "bursa"} & set(expanded):
+        social_document_question = _is_social_document_question(expanded)
+        explicit_cumulation_question = bool({"2", "cumulare", "beneficia"} & original_token_set)
+        if {"burse", "bursa"} & set(expanded) and (explicit_cumulation_question or not social_document_question):
             for token in ("bursa", "burse", "burselor", "cumulare", "beneficia"):
                 if token not in expanded:
                     expanded.append(token)
@@ -414,7 +532,16 @@ def _query_analysis_allowed_token(token: str, original_tokens: set[str]) -> bool
         return token in {"contact", "secretariat", "telefon", "email", "adresa", "program"}
 
     if original_tokens & {"cazare", "camin", "camine"}:
-        return token in {"cazare", "camin", "camine", "student", "studenti", "conditii", "eligibil"}
+        return token in {
+            "cazare", "camin", "camine", "student", "studenti", "conditii", "eligibil",
+            "documente", "acte", "dosar", "orfan", "orfani", "monoparentala", "social",
+            "justificativ", "venituri",
+        }
+
+    if _is_social_document_question(original_tokens):
+        allowed = set(SOCIAL_CONTEXT_TERMS + DOCUMENT_REQUEST_TERMS + SCHOLARSHIP_TERMS + POLICY_DOCUMENT_TERMS)
+        allowed.update({"sprijin", "conditii", "eligibil", "student", "studenti"})
+        return token in allowed
 
     if original_tokens & {"regulament", "regulamente", "metodologie", "procedura", "proceduri"}:
         return token in DOMAIN_VOCABULARY
@@ -611,6 +738,11 @@ def _academic_year_starts(text: str) -> set[int]:
     return starts
 
 
+def _upload_year_from_path(path: str) -> int | None:
+    match = re.search(r"/(20\d{2})/(?:0?[1-9]|1[0-2])(?:/|$)", path)
+    return int(match.group(1)) if match else None
+
+
 def _is_document_url(url: str) -> bool:
     return PurePosixPath(urlparse(url).path.lower()).suffix in {".pdf", ".docx", ".txt"}
 
@@ -765,6 +897,7 @@ def _page_type_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[
 def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str]]:
     title_url = f"{chunk['_title_norm']} {chunk['_url_norm']}"
     path = chunk["_path"].lower()
+    page_type = str(chunk.get("page_type") or "general")
     signals: list[str] = []
     score = 0.0
     query_years = {token for token in analysis.tokens if re.fullmatch(r"20\d{2}", token)}
@@ -814,6 +947,19 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
             elif latest_year < current_year - 1:
                 score -= min(42, 18 * (current_year - latest_year - 1))
                 signals.append("stale_academic_year")
+
+        upload_year = _upload_year_from_path(path)
+        if upload_year and analysis.is_policy_question and (chunk["_is_document"] or page_type == "regulamente"):
+            current_year = _current_academic_year_start()
+            if upload_year >= current_year:
+                score += 28
+                signals.append("current_upload_year")
+            elif upload_year == current_year - 1:
+                score += 8
+                signals.append("recent_upload_year")
+            elif upload_year < current_year - 1:
+                score -= min(48, 12 * (current_year - upload_year - 1))
+                signals.append("stale_upload_year")
 
     page_hints = PAGE_HINTS.get(analysis.intent, ())
     if analysis.intent == "studenti":
@@ -905,6 +1051,11 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
             score -= 55
             signals.append("calendar_missing")
 
+    query_tokens = set(analysis.expanded_tokens)
+    if _has_housing_context(query_tokens) and _contains_any(title_url, ("cazare", "camin", "camine")):
+        score += 32
+        signals.append("housing_title")
+
     if chunk["_is_document"]:
         score += 6
         signals.append("document")
@@ -974,7 +1125,28 @@ def _policy_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str
         score += 18
         signals.append("policy:document_terms")
 
-    scholarship_question = bool({"burse", "bursa", "burselor"} & query_tokens)
+    housing_document_question = _is_housing_document_question(query_tokens)
+    social_document_question = _is_social_document_question(query_tokens)
+    scholarship_question = bool({"burse", "bursa", "burselor"} & query_tokens) or (
+        social_document_question and not housing_document_question
+    )
+
+    if housing_document_question:
+        if _contains_any(topic_head, HOUSING_TERMS):
+            score += 34
+            signals.append("policy:housing_topic")
+        else:
+            score -= 18
+            signals.append("policy:housing_missing")
+
+        if _contains_any(combined, DOCUMENT_REQUEST_TERMS):
+            score += 22
+            signals.append("policy:housing_documents")
+
+        if _contains_any(combined, SOCIAL_CONTEXT_TERMS):
+            score += 18
+            signals.append("policy:social_context")
+
     if scholarship_question:
         if _contains_any(topic_head, SCHOLARSHIP_TERMS):
             score += 26
@@ -987,6 +1159,36 @@ def _policy_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str
             score -= 20
             signals.append("policy:topic_missing")
 
+        if social_document_question:
+            title_url_norm = f"{title_norm} {chunk['_url_norm']}"
+            if "metodologie" in title_url_norm and "burs" in title_url_norm:
+                score += 58
+                signals.append("policy:social_scholarship_methodology")
+            if _contains_any(combined, ("documentele necesare", "documente justificative")):
+                score += 32
+                signals.append("policy:social_required_documents")
+            if _contains_any(title_url_norm, OFF_TOPIC_SOCIAL_POLICY_TERMS):
+                score -= 82
+                signals.append("policy:off_topic_social_document")
+
+            has_social_context = _contains_any(combined, STRONG_SOCIAL_CONTEXT_TERMS)
+            if has_social_context:
+                score += 30
+                signals.append("policy:social_support_context")
+            else:
+                score -= 54
+                signals.append("policy:social_context_missing")
+            if _contains_any(combined, DOCUMENT_REQUEST_TERMS):
+                score += 20
+                signals.append("policy:social_documents")
+            off_topic_financial_document = _contains_any(
+                f"{title_norm} {chunk['_url_norm']}",
+                ("doctoranzi", "mobilitati", "cercetare", "doctorat"),
+            )
+            if off_topic_financial_document and not {"doctorat", "doctoranzi", "mobilitati", "cercetare"} & query_tokens:
+                score -= 44
+                signals.append("policy:off_topic_financial_document")
+
     asks_cumulation = bool({"2", "cumulare"} & query_tokens)
     if asks_cumulation:
         if _contains_any(combined, CUMULATION_TERMS):
@@ -998,6 +1200,14 @@ def _policy_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, list[str
 
     volunteering_question = is_volunteering_credit_query(analysis.corrected_question, query_tokens)
     if volunteering_question:
+        title_url_norm = f"{title_norm} {chunk['_url_norm']}"
+        if _contains_any(title_url_norm, ("oportunitati-de-voluntariat", "oportunitati de voluntariat")):
+            score += 36
+            signals.append("policy:stable_volunteering_page")
+        if "depunerea-portofoliilor" in title_url_norm and re.search(r"/educatie/20\d{2}/\d{2}/", chunk["_path"]):
+            score -= 16
+            signals.append("policy:dated_volunteering_post")
+
         has_volunteering_topic = _contains_any(topic_head, VOLUNTEERING_TERMS)
         has_credit_topic = _contains_any(topic_head, VOLUNTEERING_CREDIT_TERMS)
         has_submission_topic = _contains_any(topic_head, SUBMISSION_TERMS)
@@ -1073,6 +1283,8 @@ def _prefer_policy_candidates(scored: list[dict], analysis: QueryAnalysis) -> li
     if not analysis.is_policy_question:
         return scored
 
+    query_tokens = set(analysis.expanded_tokens)
+
     if is_volunteering_credit_query(analysis.corrected_question, analysis.expanded_tokens):
         volunteering_candidates = [
             chunk for chunk in scored
@@ -1087,7 +1299,26 @@ def _prefer_policy_candidates(scored: list[dict], analysis: QueryAnalysis) -> li
         if volunteering_candidates:
             scored = volunteering_candidates
 
-    if {"burse", "bursa", "burselor"} & set(analysis.expanded_tokens):
+    if _is_housing_document_question(query_tokens):
+        housing_candidates = [
+            chunk for chunk in scored
+            if "policy:housing_topic" in chunk.get("match_signals", [])
+            or _contains_any(normalize(f"{chunk.get('title', '')} {chunk.get('url', '')}"), HOUSING_TERMS)
+        ]
+        if housing_candidates:
+            scored = housing_candidates
+
+    if _is_social_document_question(query_tokens) and not _is_housing_document_question(query_tokens):
+        social_candidates = [
+            chunk for chunk in scored
+            if "burs" in normalize(
+                f"{chunk.get('title', '')} {chunk.get('url', '')} {str(chunk.get('chunk_text', ''))[:1800]}"
+            )
+        ]
+        if social_candidates:
+            scored = social_candidates
+
+    if {"burse", "bursa", "burselor"} & query_tokens:
         topic_candidates = [
             chunk for chunk in scored
             if "policy:scholarship_topic" in chunk.get("match_signals", [])
@@ -1145,6 +1376,15 @@ def select_diverse_chunks(scored_chunks: list[dict], top_k: int, max_chunks_per_
     return selected
 
 
+def max_chunks_per_url_for_analysis(analysis: QueryAnalysis) -> int:
+    query_tokens = set(analysis.expanded_tokens)
+    if _is_housing_document_question(query_tokens) or _is_social_document_question(query_tokens):
+        return 4
+    if analysis.is_policy_question:
+        return 2
+    return 1
+
+
 def build_query_embedding_text(question: str, analysis: QueryAnalysis) -> str:
     return (
         f"Intrebare student: {question}\n"
@@ -1153,6 +1393,39 @@ def build_query_embedding_text(question: str, analysis: QueryAnalysis) -> str:
         f"Intrebare de regulament/metodologie: {analysis.is_policy_question}\n"
         f"Termeni importanti: {' '.join(analysis.expanded_tokens)}"
     )
+
+
+def build_query_embedding_texts(question: str, analysis: QueryAnalysis) -> list[str]:
+    texts = [build_query_embedding_text(question, analysis)]
+    query_tokens = set(analysis.expanded_tokens)
+
+    if _is_social_document_question(query_tokens) and not _is_housing_document_question(query_tokens):
+        texts.append(
+            "Intrebare student despre acte pentru bursa sociala.\n"
+            "Cautare prioritara: Metodologie privind acordarea burselor. "
+            "Anexa documentele necesare pentru bursele sociale. "
+            "Studenti din familii monoparentale, parinti divortati, orfani, venituri, documente justificative."
+        )
+
+    if _is_housing_document_question(query_tokens):
+        texts.append(
+            "Intrebare student despre dosarul de cazare in caminele UVT.\n"
+            "Cautare prioritara: Regulament de cazare in caminele UVT. "
+            "Cazuri sociale, orfan de parinte, familie monoparentala, documente justificative, criterii sociale."
+        )
+
+    return texts
+
+
+def vector_search_limit_for_analysis(analysis: QueryAnalysis) -> int:
+    query_tokens = set(analysis.expanded_tokens)
+    if _is_social_document_question(query_tokens):
+        return max(VECTOR_SEARCH_LIMIT, 60)
+    if _is_housing_document_question(query_tokens):
+        return max(VECTOR_SEARCH_LIMIT, 36)
+    if analysis.is_policy_question:
+        return max(VECTOR_SEARCH_LIMIT, 24)
+    return VECTOR_SEARCH_LIMIT
 
 
 def _vector_search_passes(analysis: QueryAnalysis, selected_faculty: str) -> list[dict]:
@@ -1201,17 +1474,20 @@ def _merge_semantic_hits(hit_groups: list[tuple[str, list[dict]]]) -> list[dict]
 
 
 def _retrieve_semantic_candidates(question: str, analysis: QueryAnalysis, selected_faculty: str) -> list[dict]:
-    query_vector = embed_text(build_query_embedding_text(question, analysis))
     hit_groups: list[tuple[str, list[dict]]] = []
+    search_limit = vector_search_limit_for_analysis(analysis)
 
-    for search_pass in _vector_search_passes(analysis, selected_faculty):
-        hits = search_chunks(
-            query_vector=query_vector,
-            faculty_ids=search_pass["faculty_ids"],
-            page_types=search_pass["page_types"],
-            limit=VECTOR_SEARCH_LIMIT,
-        )
-        hit_groups.append((search_pass["label"], hits))
+    for query_index, query_text in enumerate(build_query_embedding_texts(question, analysis), start=1):
+        query_vector = embed_text(query_text)
+        for search_pass in _vector_search_passes(analysis, selected_faculty):
+            hits = search_chunks(
+                query_vector=query_vector,
+                faculty_ids=search_pass["faculty_ids"],
+                page_types=search_pass["page_types"],
+                limit=search_limit,
+            )
+            label = search_pass["label"] if query_index == 1 else f"{search_pass['label']}:targeted"
+            hit_groups.append((label, hits))
 
     return _merge_semantic_hits(hit_groups)
 
@@ -1324,7 +1600,7 @@ def rank_vector_index(question: str, index_document: dict, selected_faculty: str
     chunks = select_diverse_chunks(
         scored,
         top_k=top_k,
-        max_chunks_per_url=2 if analysis.is_policy_question else 1,
+        max_chunks_per_url=max_chunks_per_url_for_analysis(analysis),
     )
     confidence = compute_confidence(chunks, analysis)
 
@@ -1357,7 +1633,7 @@ def rank_lexical_index(question: str, index_document: dict, selected_faculty: st
     chunks = select_diverse_chunks(
         scored,
         top_k=top_k,
-        max_chunks_per_url=2 if analysis.is_policy_question else 1,
+        max_chunks_per_url=max_chunks_per_url_for_analysis(analysis),
     )
     confidence = compute_confidence(chunks, analysis)
 
@@ -1406,7 +1682,7 @@ def rank_runtime_chunks(
     scored = [chunk for chunk in scored if chunk["retrieval_score"] > 0]
     scored = _prefer_policy_candidates(scored, analysis)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
-    selected = select_diverse_chunks(scored, top_k=top_k)
+    selected = select_diverse_chunks(scored, top_k=top_k, max_chunks_per_url=max_chunks_per_url_for_analysis(analysis))
     confidence = compute_confidence(selected, analysis)
 
     return {

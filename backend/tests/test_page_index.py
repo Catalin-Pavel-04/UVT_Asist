@@ -10,6 +10,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from faculties import FACULTIES
 from page_index import (
+    DOCUMENT_MAX_CHUNKS_PER_PAGE,
+    DOCUMENT_MAX_PAGE_TEXT_CHARS,
     MAX_CHUNKS_PER_PAGE,
     MAX_PAGE_TEXT_CHARS,
     build_chunk_entries_from_pages,
@@ -76,6 +78,25 @@ class PageIndexTests(unittest.TestCase):
         )
 
         self.assertLessEqual(len(chunks), MAX_CHUNKS_PER_PAGE)
+
+    def test_document_chunks_preserve_late_sections_for_regulation_annexes(self) -> None:
+        early_text = "criterii generale de acordare " * (MAX_PAGE_TEXT_CHARS // 10)
+        late_text = "ANEXA NR. 2 DOCUMENTELE NECESARE PENTRU BURSELE SOCIALE certificat divort venituri "
+        chunks = build_chunk_entries_from_pages(
+            [
+                {
+                    "url": "https://uvt.ro/wp-content/uploads/test/metodologie-burse.pdf",
+                    "title": "Metodologie privind acordarea burselor.pdf",
+                    "text": early_text + late_text,
+                }
+            ],
+            FACULTIES,
+            built_at="2026-01-01T00:00:00+00:00",
+        )
+
+        self.assertLessEqual(len(chunks), DOCUMENT_MAX_CHUNKS_PER_PAGE)
+        self.assertGreater(DOCUMENT_MAX_PAGE_TEXT_CHARS, MAX_PAGE_TEXT_CHARS)
+        self.assertTrue(any("ANEXA NR. 2" in chunk["chunk_text"] for chunk in chunks))
 
     def test_normalize_index_document_removes_duplicate_chunks_before_vector_indexing(self) -> None:
         document = build_index_document(
