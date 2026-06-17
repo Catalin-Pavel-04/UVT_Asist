@@ -17,6 +17,7 @@ htmlcov/
 backend/feedback_log.jsonl
 backend/data/page_index.json
 backend/data/page_index.meta.json
+backend/data/evaluation/
 backend/data/qdrant_local/
 qdrant_storage/
 

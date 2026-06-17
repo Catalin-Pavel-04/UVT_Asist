@@ -1,0 +1,412 @@
+[
+  {
+    "id": "orar_info_001",
+    "category": "orar",
+    "faculty_id": "info",
+    "question": "Unde găsesc orarul la Informatică?",
+    "expected_url_contains": ["info.uvt.ro/orare"],
+    "expected_title_contains": ["Orare"],
+    "should_have_answer": true,
+    "notes": "Top source should be the official Informatics schedule page."
+  },
+  {
+    "id": "orar_info_002",
+    "category": "orar",
+    "faculty_id": "info",
+    "question": "Unde este publicat orarul pentru studenții de la info?",
+    "expected_url_contains": ["info.uvt.ro/orare"],
+    "expected_title_contains": ["Orare"],
+    "should_have_answer": true,
+    "notes": "Should route to the faculty schedule page even with informal wording."
+  },
+  {
+    "id": "orar_info_typo_003",
+    "category": "orar",
+    "faculty_id": "info",
+    "question": "Unde găsesc orrarul la info?",
+    "expected_url_contains": ["info.uvt.ro/orare"],
+    "expected_title_contains": ["Orare"],
+    "should_have_answer": true,
+    "notes": "Typo correction should still retrieve the Informatics schedule page."
+  },
+  {
+    "id": "orar_general_004",
+    "category": "orar",
+    "faculty_id": "uvt",
+    "question": "Am nevoie de orarul facultății. Unde îl văd?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": true,
+    "notes": "The system should ask for or infer a concrete faculty instead of picking a random schedule page."
+  },
+  {
+    "id": "contact_info_001",
+    "category": "contact/secretariat",
+    "faculty_id": "info",
+    "question": "Unde găsesc secretariatul Facultății de Informatică?",
+    "expected_url_contains": ["info.uvt.ro/contact"],
+    "expected_title_contains": ["Contact"],
+    "should_have_answer": true,
+    "notes": "Top source should be the official Informatics contact page."
+  },
+  {
+    "id": "contact_info_002",
+    "category": "contact/secretariat",
+    "faculty_id": "info",
+    "question": "Care este pagina de contact pentru informatică?",
+    "expected_url_contains": ["info.uvt.ro/contact"],
+    "expected_title_contains": ["Contact"],
+    "should_have_answer": true,
+    "notes": "Should prefer the faculty contact page."
+  },
+  {
+    "id": "contact_uvt_003",
+    "category": "contact/secretariat",
+    "faculty_id": "uvt",
+    "question": "Unde găsesc datele de contact UVT?",
+    "expected_url_contains": ["uvt.ro/contact"],
+    "expected_title_contains": ["Contact"],
+    "should_have_answer": true,
+    "notes": "General UVT contact questions should use the university contact page."
+  },
+  {
+    "id": "contact_feaa_004",
+    "category": "contact/secretariat",
+    "faculty_id": "feaa",
+    "question": "Unde pot contacta secretariatul FEAA?",
+    "expected_url_contains": ["feaa.uvt.ro"],
+    "expected_title_contains": ["Contact", "Secretariat"],
+    "should_have_answer": true,
+    "notes": "Should prefer an official FEAA contact or secretariat page."
+  },
+  {
+    "id": "admitere_uvt_001",
+    "category": "admitere",
+    "faculty_id": "uvt",
+    "question": "Unde găsesc informații despre admitere la UVT?",
+    "expected_url_contains": ["admitere.uvt.ro"],
+    "expected_title_contains": ["Admitere"],
+    "should_have_answer": true,
+    "notes": "Top sources should come from the official admission website."
+  },
+  {
+    "id": "admitere_uvt_002",
+    "category": "admitere",
+    "faculty_id": "uvt",
+    "question": "Cum aplic online la admitere?",
+    "expected_url_contains": ["admitere.uvt.ro/procesul-de-admitere", "admitere.uvt.ro"],
+    "expected_title_contains": ["admitere", "preînscriere", "aplici"],
+    "should_have_answer": true,
+    "notes": "Should prefer stable process/pre-enrollment pages over old news."
+  },
+  {
+    "id": "admitere_info_003",
+    "category": "admitere",
+    "faculty_id": "info",
+    "question": "Unde văd detalii despre admiterea la Informatică?",
+    "expected_url_contains": ["info.uvt.ro", "admitere.uvt.ro"],
+    "expected_title_contains": ["Admitere", "Informatică"],
+    "should_have_answer": true,
+    "notes": "Either official faculty admission information or the UVT admission site is acceptable."
+  },
+  {
+    "id": "admitere_taxe_004",
+    "category": "admitere",
+    "faculty_id": "uvt",
+    "question": "Unde găsesc taxele de admitere?",
+    "expected_url_contains": ["admitere.uvt.ro"],
+    "expected_title_contains": ["taxe", "admitere"],
+    "should_have_answer": true,
+    "notes": "Admission fee questions should stay on official admission pages."
+  },
+  {
+    "id": "burse_uvt_001",
+    "category": "burse",
+    "faculty_id": "uvt",
+    "question": "Este posibil ca un student să beneficieze de 2 burse?",
+    "expected_url_contains": ["burse", "metodologie", "regulament", "uvt.ro"],
+    "expected_title_contains": ["burse", "metodologie", "regulament"],
+    "should_have_answer": true,
+    "notes": "Should prefer UVT scholarship methodology or regulation sources."
+  },
+  {
+    "id": "burse_uvt_002",
+    "category": "burse",
+    "faculty_id": "uvt",
+    "question": "Se pot cumula bursele la UVT?",
+    "expected_url_contains": ["burse", "metodologie", "regulament", "uvt.ro"],
+    "expected_title_contains": ["burse", "metodologie", "regulament"],
+    "should_have_answer": true,
+    "notes": "Policy question; methodology/regulation pages should beat generic pages."
+  },
+  {
+    "id": "burse_sociale_003",
+    "category": "burse",
+    "faculty_id": "uvt",
+    "question": "Ce documente sunt necesare pentru bursa socială?",
+    "expected_url_contains": ["burse", "metodologie", "uvt.ro"],
+    "expected_title_contains": ["burse", "metodologie"],
+    "should_have_answer": true,
+    "notes": "Should use scholarship methodology or official scholarship pages."
+  },
+  {
+    "id": "burse_info_004",
+    "category": "burse",
+    "faculty_id": "info",
+    "question": "Unde găsesc informații despre burse pentru studenții de la Informatică?",
+    "expected_url_contains": ["info.uvt.ro", "uvt.ro"],
+    "expected_title_contains": ["Burse"],
+    "should_have_answer": true,
+    "notes": "Faculty or UVT official scholarship sources are acceptable."
+  },
+  {
+    "id": "burse_performanta_005",
+    "category": "burse",
+    "faculty_id": "uvt",
+    "question": "Care sunt criteriile pentru bursa de performanță?",
+    "expected_url_contains": ["burse", "metodologie", "uvt.ro"],
+    "expected_title_contains": ["burse", "metodologie"],
+    "should_have_answer": true,
+    "notes": "Should retrieve scholarship methodology/regulation evidence."
+  },
+  {
+    "id": "regulamente_uvt_001",
+    "category": "regulamente/metodologii",
+    "faculty_id": "uvt",
+    "question": "Unde găsesc regulamentele UVT pentru studenți?",
+    "expected_url_contains": ["uvt.ro", "regulament"],
+    "expected_title_contains": ["Regulamente", "Regulament"],
+    "should_have_answer": true,
+    "notes": "Should prefer official regulation pages or documents."
+  },
+  {
+    "id": "regulamente_examene_002",
+    "category": "regulamente/metodologii",
+    "faculty_id": "uvt",
+    "question": "Unde pot consulta regulamentul privind activitatea profesională a studenților?",
+    "expected_url_contains": ["uvt.ro", "regulament"],
+    "expected_title_contains": ["Regulament"],
+    "should_have_answer": true,
+    "notes": "Should find a regulation or methodology page, not a generic homepage."
+  },
+  {
+    "id": "regulamente_credite_003",
+    "category": "regulamente/metodologii",
+    "faculty_id": "uvt",
+    "question": "Cum se depune dosarul pentru creditele de voluntariat?",
+    "expected_url_contains": ["voluntariat", "credite", "uvt.ro"],
+    "expected_title_contains": ["voluntariat", "credite"],
+    "should_have_answer": true,
+    "notes": "Should prefer volunteering credit/portfolio sources instead of admission pages."
+  },
+  {
+    "id": "regulamente_plagiat_004",
+    "category": "regulamente/metodologii",
+    "faculty_id": "uvt",
+    "question": "Unde găsesc regulile despre etică și plagiat?",
+    "expected_url_contains": ["uvt.ro", "etica", "regulament"],
+    "expected_title_contains": ["etică", "etica", "regulament"],
+    "should_have_answer": true,
+    "notes": "Should retrieve official ethics/regulation sources if indexed."
+  },
+  {
+    "id": "cazare_uvt_001",
+    "category": "cazare/cămine",
+    "faculty_id": "uvt",
+    "question": "Unde găsesc informații despre cazarea în căminele UVT?",
+    "expected_url_contains": ["cazare", "camine", "uvt.ro"],
+    "expected_title_contains": ["Cazare", "Cămine", "Campus"],
+    "should_have_answer": true,
+    "notes": "Should prefer official housing/campus pages."
+  },
+  {
+    "id": "cazare_uvt_002",
+    "category": "cazare/cămine",
+    "faculty_id": "uvt",
+    "question": "Care este regulamentul de cazare în cămine?",
+    "expected_url_contains": ["cazare", "regulament", "uvt.ro"],
+    "expected_title_contains": ["cazare", "regulament"],
+    "should_have_answer": true,
+    "notes": "Policy-like housing question should prefer housing regulation sources."
+  },
+  {
+    "id": "cazare_social_003",
+    "category": "cazare/cămine",
+    "faculty_id": "uvt",
+    "question": "Sunt orfan de un părinte. Ce acte îmi trebuie pentru dosarul de cazare?",
+    "expected_url_contains": ["cazare", "regulament", "uvt.ro"],
+    "expected_title_contains": ["cazare", "regulament"],
+    "should_have_answer": true,
+    "notes": "Should prefer official housing regulation or methodology evidence."
+  },
+  {
+    "id": "cazare_taxe_004",
+    "category": "cazare/cămine",
+    "faculty_id": "uvt",
+    "question": "Unde văd taxele pentru cămine?",
+    "expected_url_contains": ["cazare", "camine", "uvt.ro"],
+    "expected_title_contains": ["Cazare", "Cămine", "taxe"],
+    "should_have_answer": true,
+    "notes": "Should retrieve official housing pages when available."
+  },
+  {
+    "id": "calendar_uvt_001",
+    "category": "calendar academic",
+    "faculty_id": "uvt",
+    "question": "Unde găsesc calendarul academic UVT?",
+    "expected_url_contains": ["calendar", "uvt.ro"],
+    "expected_title_contains": ["Calendar"],
+    "should_have_answer": true,
+    "notes": "Should use the official academic calendar page/document."
+  },
+  {
+    "id": "calendar_uvt_002",
+    "category": "calendar academic",
+    "faculty_id": "uvt",
+    "question": "Când începe semestrul al doilea?",
+    "expected_url_contains": ["calendar", "uvt.ro"],
+    "expected_title_contains": ["Calendar"],
+    "should_have_answer": true,
+    "notes": "Should retrieve academic calendar evidence before answering dates."
+  },
+  {
+    "id": "calendar_uvt_003",
+    "category": "calendar academic",
+    "faculty_id": "uvt",
+    "question": "Unde sunt perioadele de sesiune și vacanță?",
+    "expected_url_contains": ["calendar", "uvt.ro"],
+    "expected_title_contains": ["Calendar"],
+    "should_have_answer": true,
+    "notes": "Should prefer official academic calendar sources."
+  },
+  {
+    "id": "calendar_info_004",
+    "category": "calendar academic",
+    "faculty_id": "info",
+    "question": "Există calendar academic pentru anul universitar curent?",
+    "expected_url_contains": ["calendar", "uvt.ro", "info.uvt.ro"],
+    "expected_title_contains": ["Calendar"],
+    "should_have_answer": true,
+    "notes": "Either UVT or faculty official academic calendar pages are acceptable."
+  },
+  {
+    "id": "voluntariat_uvt_001",
+    "category": "voluntariat/credite",
+    "faculty_id": "uvt",
+    "question": "Cum pot obține credite pentru activitatea de voluntariat?",
+    "expected_url_contains": ["voluntariat", "credite", "uvt.ro"],
+    "expected_title_contains": ["voluntariat", "credite"],
+    "should_have_answer": true,
+    "notes": "Should retrieve official volunteering credit pages."
+  },
+  {
+    "id": "voluntariat_uvt_002",
+    "category": "voluntariat/credite",
+    "faculty_id": "uvt",
+    "question": "Ce conține portofoliul pentru creditele de voluntariat?",
+    "expected_url_contains": ["voluntariat", "credite", "uvt.ro"],
+    "expected_title_contains": ["voluntariat", "credite", "portofoliu"],
+    "should_have_answer": true,
+    "notes": "Should prefer volunteering portfolio instructions."
+  },
+  {
+    "id": "voluntariat_uvt_003",
+    "category": "voluntariat/credite",
+    "faculty_id": "uvt",
+    "question": "Unde depun documentele pentru voluntariat?",
+    "expected_url_contains": ["voluntariat", "credite", "uvt.ro"],
+    "expected_title_contains": ["voluntariat", "credite"],
+    "should_have_answer": true,
+    "notes": "Should not route to generic admission dossier pages."
+  },
+  {
+    "id": "vag_info_001",
+    "category": "întrebări vagi",
+    "faculty_id": "info",
+    "question": "Unde găsesc informațiile importante?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": true,
+    "notes": "The system should be cautious and may ask for clarification or return broad official sources with lower confidence."
+  },
+  {
+    "id": "vag_uvt_002",
+    "category": "întrebări vagi",
+    "faculty_id": "uvt",
+    "question": "Ce trebuie să fac ca student?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": true,
+    "notes": "A vague question should not produce unsupported specificity."
+  },
+  {
+    "id": "vag_uvt_003",
+    "category": "întrebări vagi",
+    "faculty_id": "uvt",
+    "question": "Am o problemă cu facultatea, unde mă uit?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": true,
+    "notes": "Should provide cautious guidance or ask for a more specific topic."
+  },
+  {
+    "id": "vag_info_004",
+    "category": "întrebări vagi",
+    "faculty_id": "info",
+    "question": "Spune-mi ceva util despre facultate.",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": true,
+    "notes": "Should not invent details; low or medium confidence is acceptable."
+  },
+  {
+    "id": "unanswerable_uvt_001",
+    "category": "întrebări fără răspuns sigur în sursele oficiale",
+    "faculty_id": "uvt",
+    "question": "Care va fi media minimă de admitere de anul viitor?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": false,
+    "notes": "Future admission thresholds are not safely known from official current sources; system should return low confidence or insufficient evidence."
+  },
+  {
+    "id": "unanswerable_info_002",
+    "category": "întrebări fără răspuns sigur în sursele oficiale",
+    "faculty_id": "info",
+    "question": "Ce subiecte exacte vor fi la examenul de mâine?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": false,
+    "notes": "The system should not invent unpublished exam subjects."
+  },
+  {
+    "id": "unanswerable_uvt_003",
+    "category": "întrebări fără răspuns sigur în sursele oficiale",
+    "faculty_id": "uvt",
+    "question": "Ce bursă voi primi personal luna viitoare?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": false,
+    "notes": "Personal scholarship decisions require private administrative data; system should state sources are insufficient."
+  },
+  {
+    "id": "unanswerable_uvt_004",
+    "category": "întrebări fără răspuns sigur în sursele oficiale",
+    "faculty_id": "uvt",
+    "question": "Îmi poți confirma nota mea de la ultimul examen?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": false,
+    "notes": "Personal grades are not public official source content; system should not answer with fabricated data."
+  },
+  {
+    "id": "unanswerable_info_005",
+    "category": "întrebări fără răspuns sigur în sursele oficiale",
+    "faculty_id": "info",
+    "question": "Care profesor va lipsi sigur săptămâna viitoare?",
+    "expected_url_contains": [],
+    "expected_title_contains": [],
+    "should_have_answer": false,
+    "notes": "Unless official sources state this, system should return low confidence or insufficient evidence."
+  }
+]

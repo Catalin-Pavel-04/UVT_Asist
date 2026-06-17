@@ -18,6 +18,9 @@ The system is designed as local-index-first RAG. Official UVT and faculty pages 
 - `backend/site_cache.py`: short-lived live verification cache.
 - `backend/prompts.py`: local RAG prompt contract.
 - `backend/faculties.py`: UVT and faculty source configuration.
+- `backend/evaluation/eval_questions.json`: versioned RAG evaluation questions.
+- `backend/scripts/evaluate_rag.py`: local evaluation runner that writes JSON, CSV, and Markdown reports.
+- `backend/scripts/demo_check.py`: reproducible local demo readiness checker.
 
 ## Local AI Stack
 
@@ -39,6 +42,56 @@ OLLAMA_QUERY_ANALYSIS_ENABLED=false
 You can switch models by changing those two variables and rebuilding the vector index when the embedding model changes.
 When `OLLAMA_QUERY_ANALYSIS_ENABLED=true`, the backend first asks Ollama for a short JSON query rewrite, intent, and keyword hints. Those hints are sanitized against the UVT vocabulary and only influence retrieval; deterministic Qdrant search and reranking still choose the final sources.
 
+## Demo rapid
+
+Run all commands from the repository root.
+
+1. Create and activate the Python environment:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r backend\requirements.txt
+Copy-Item backend\.env.example backend\.env
+```
+
+2. Start Ollama in one terminal, then pull the local models from another terminal:
+
+```powershell
+ollama serve
+```
+
+```powershell
+ollama pull qwen3:4b
+ollama pull nomic-embed-text
+```
+
+3. Start Qdrant with Docker Compose:
+
+```powershell
+docker compose up -d qdrant
+```
+
+4. Build the JSON and Qdrant indexes:
+
+```powershell
+python backend\build_index.py
+```
+
+5. Start Flask and check health:
+
+```powershell
+python backend\app.py
+Invoke-RestMethod http://127.0.0.1:5000/health
+```
+
+6. Load the Chrome extension:
+
+- Open `chrome://extensions`.
+- Enable Developer mode.
+- Choose Load unpacked.
+- Select the `extension/` folder.
+
 ## Setup
 
 ```powershell
@@ -59,13 +112,13 @@ ollama serve
 Start Qdrant with Docker:
 
 ```powershell
-docker run --name uvt-asist-qdrant -p 6333:6333 -p 6334:6334 -v ${PWD}\qdrant_storage:/qdrant/storage qdrant/qdrant
+docker compose up -d qdrant
 ```
 
 If the container already exists:
 
 ```powershell
-docker start uvt-asist-qdrant
+docker compose up -d qdrant
 ```
 
 If Docker is not available, Qdrant Client can run a local embedded store for development. Set this in `backend/.env` before building the vector index:
@@ -91,10 +144,10 @@ ollama serve
 2. Start Qdrant in another terminal:
 
 ```powershell
-docker start uvt-asist-qdrant
+docker compose up -d qdrant
 ```
 
-If the container was not created yet, use the `docker run ... qdrant/qdrant` command from the setup section instead and leave that terminal open.
+Docker Compose creates the container on the first run and reuses it on later runs.
 
 3. Build the local JSON and Qdrant index once:
 
@@ -124,6 +177,22 @@ Invoke-RestMethod http://127.0.0.1:5000/health
 - Open the extension popup and ask a question.
 
 For later runs, the usual sequence is shorter: start Ollama, start Qdrant, activate `.venv`, run `python backend\app.py`, then use the already-loaded Chrome extension. Rebuild the index only when official sources, crawler settings, chunking, or the embedding model change.
+
+## Verificare demo
+
+Before a thesis demo, run:
+
+```powershell
+python backend\scripts\demo_check.py
+```
+
+The script checks Python imports, `backend/.env`, Ollama availability, configured Ollama models, Qdrant, the Flask `/health` endpoint when it is running, the JSON index, and the Qdrant collection status. It prints `OK`, `WARNING`, and `ERROR` lines with concrete recovery commands such as:
+
+- `ollama pull qwen3:4b`
+- `ollama pull nomic-embed-text`
+- `docker compose up -d qdrant`
+- `python backend/build_index.py`
+- `python backend/app.py`
 
 ## Build Or Rebuild The Index
 
@@ -244,6 +313,54 @@ Each stored Qdrant payload contains:
 - `chunk_text`
 - `last_indexed`
 
+## Evaluare RAG
+
+The repository includes a minimal, measurable RAG evaluation framework for thesis validation. The versioned question set lives in:
+
+```text
+backend/evaluation/eval_questions.json
+```
+
+It contains Romanian questions grouped by schedule, contact/secretariat, admission, scholarships, regulations/methodologies, housing, academic calendar, volunteering credits, vague questions, and questions without a safe answer in official sources.
+
+Run the evaluation only when Flask, Ollama, and Qdrant are available:
+
+```powershell
+python backend\scripts\evaluate_rag.py
+```
+
+Useful filters:
+
+```powershell
+python backend\scripts\evaluate_rag.py --category burse --limit 5
+python backend\scripts\evaluate_rag.py --backend-url http://127.0.0.1:5000 --timeout 180
+```
+
+Generated reports are written under `backend/data/evaluation/`:
+
+- `eval_results_<timestamp>.json`: full payloads, sources, evidence, errors, and per-question timings.
+- `eval_results_<timestamp>.csv`: compact tabular results for spreadsheet analysis.
+- `eval_summary_<timestamp>.md`: human-readable summary with misses and errors.
+
+`backend/data/evaluation/` is ignored by Git because it contains generated local reports. The stable evaluation dataset in `backend/evaluation/eval_questions.json` is versioned.
+
+Metric meaning:
+
+- `top1_url_match`: the first returned source URL contains one expected official URL fragment.
+- `top3_url_match`: at least one of the first three source URLs contains an expected official URL fragment.
+- `low_confidence_count`: number of responses marked `confidence=low` or with a very low confidence score.
+- `expected_unanswerable_handled_count`: number of questions marked `should_have_answer=false` where the system returned low confidence, no answerable evidence, or no sources.
+- `latency`: request time per `/chat` call, reported as average and median seconds.
+
+## Strategii de reducere a halucinațiilor
+
+- Answers are grounded in official UVT and faculty sources from the local JSON/Qdrant index.
+- Source selection is performed by Qdrant retrieval plus deterministic reranking; the LLM does not choose the final evidence.
+- The backend returns `confidence`, `confidence_score`, and an evidence profile with source counts and top source metadata.
+- Live verification is limited to selected top official URLs and can be disabled for offline demos.
+- The prompt contract forbids inventing dates, rules, eligibility criteria, or administrative decisions not present in the retrieved context.
+- When evidence is weak, the system should state that the official sources are insufficient instead of producing unsupported specificity.
+
 ## Example Queries
 
 - Faculty `info`: `Unde gasesc orarul?`
@@ -286,6 +403,18 @@ python backend\app.py
 Invoke-RestMethod http://127.0.0.1:5000/health
 ```
 
+Run the demo readiness check before presenting:
+
+```powershell
+python backend\scripts\demo_check.py
+```
+
+Run the RAG evaluation when the full local stack is up:
+
+```powershell
+python backend\scripts\evaluate_rag.py
+```
+
 Manual popup checklist:
 
 1. `info` faculty, ask `Unde gasesc orarul?`; top source should be `info.uvt.ro/orare`.
@@ -299,9 +428,18 @@ Manual popup checklist:
 ## Limitations
 
 - The system answers only from pages present in the local JSON/Qdrant index plus the narrow live verification step.
-- If official pages change, rebuild the index.
+- The application depends on the quality, completeness, and freshness of the indexed official sources.
+- If official pages change, the index must be rebuilt with `python backend\build_index.py`.
 - If the embedding model changes, rebuild the Qdrant vector collection.
-- Ollama model quality and speed depend on local hardware.
+- Answer quality and latency depend on the local Ollama generation model and local hardware.
 - Live fetching is intentionally bounded to keep the demo deterministic.
 - OCR support is optional and depends on the separate OCR setup.
+- The application is designed for local execution, not direct public exposure.
 - The popup is the only user-facing interface; there is no separate web frontend.
+
+## Securitate locală
+
+- The Flask backend is intended to run on `localhost` for a local Chrome extension demo.
+- Do not expose the backend publicly without restrictive CORS, authentication, rate limiting, request-size limits, logging review, and general deployment hardening.
+- `backend/feedback_log.jsonl` can contain user questions and feedback; do not publish it.
+- `.env`, generated indexes, evaluation outputs, local Qdrant storage, and runtime logs are ignored by Git.

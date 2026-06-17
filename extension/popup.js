@@ -11,18 +11,18 @@ const REQUEST_TIMEOUT_MS = {
 
 const FALLBACK_FACULTIES = [
   { id: "uvt", name: "UVT (general)" },
-  { id: "arte", name: "Facultatea de Arte si Design" },
+  { id: "arte", name: "Facultatea de Arte și Design" },
   { id: "cbg", name: "Facultatea de Chimie, Biologie, Geografie" },
   { id: "drept", name: "Facultatea de Drept" },
-  { id: "feaa", name: "Facultatea de Economie si de Administrare a Afacerilor" },
-  { id: "sport", name: "Facultatea de Educatie Fizica si Sport" },
-  { id: "ffm", name: "Facultatea de Fizica si Matematica" },
-  { id: "info", name: "Facultatea de Informatica" },
-  { id: "fmt", name: "Facultatea de Muzica si Teatru" },
-  { id: "lift", name: "Facultatea de Litere, Istorie, Filosofie si Teologie" },
-  { id: "fsas", name: "Facultatea de Sociologie si Asistenta Sociala" },
-  { id: "fpse", name: "Facultatea de Psihologie si Stiinte ale Educatiei" },
-  { id: "fsgc", name: "Facultatea de Stiinte ale Guvernarii si Comunicarii" }
+  { id: "feaa", name: "Facultatea de Economie și de Administrare a Afacerilor" },
+  { id: "sport", name: "Facultatea de Educație Fizică și Sport" },
+  { id: "ffm", name: "Facultatea de Fizică și Matematică" },
+  { id: "info", name: "Facultatea de Informatică" },
+  { id: "fmt", name: "Facultatea de Muzică și Teatru" },
+  { id: "lift", name: "Facultatea de Litere, Istorie, Filosofie și Teologie" },
+  { id: "fsas", name: "Facultatea de Sociologie și Asistență Socială" },
+  { id: "fpse", name: "Facultatea de Psihologie și Științe ale Educației" },
+  { id: "fsgc", name: "Facultatea de Științe ale Guvernării și Comunicării" }
 ];
 
 const refs = {
@@ -85,7 +85,7 @@ async function fetchJson(path, options = {}, timeoutMs = REQUEST_TIMEOUT_MS.heal
     return data;
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error("Cererea a depasit timpul de asteptare.");
+      throw new Error("Cererea a depășit timpul de așteptare.");
     }
     throw error;
   } finally {
@@ -98,7 +98,7 @@ function normalizeSources(sources = []) {
   return sources
     .filter((source) => source && typeof source.url === "string" && source.url.trim())
     .map((source) => ({
-      title: source.title?.trim() || "Sursa oficiala",
+      title: source.title?.trim() || "Sursă oficială",
       url: source.url.trim(),
       faculty_id: source.faculty_id || "uvt",
       page_type: source.page_type || "general",
@@ -211,7 +211,7 @@ function renderIndexingProgress(indexing) {
   refs.indexProgress.hidden = false;
   refs.indexProgressBar.style.width = `${progress}%`;
   refs.indexProgressPercent.textContent = `${progress}%`;
-  refs.indexProgressText.textContent = indexing.message || "Indexare in curs";
+  refs.indexProgressText.textContent = indexing.message || "Indexare în curs";
 }
 
 function startIndexingPoll() {
@@ -235,7 +235,7 @@ function handleIndexingStatus(indexing) {
     setStatus(
       "loading",
       "Indexare surse oficiale",
-      indexing.message || "Backend-ul construieste indexul local complet."
+      indexing.message || "Backend-ul construiește indexul local complet."
     );
     startIndexingPoll();
     return true;
@@ -245,8 +245,8 @@ function handleIndexingStatus(indexing) {
   if (indexing?.error) {
     setStatus(
       "warning",
-      "Indexarea a esuat",
-      indexing.error || "Verifica serviciile locale si logurile backend."
+      "Indexarea a eșuat",
+      indexing.error || "Verifică serviciile locale și logurile backend."
     );
   }
   return false;
@@ -263,16 +263,16 @@ async function checkIndexingStatus() {
     stopIndexingPoll();
     setIndexingBusy(false);
     setBackendOnline(false);
-    setStatus("error", "Backend indisponibil", "Nu pot citi progresul indexarii de la 127.0.0.1:5000.");
+    setStatus("error", "Backend indisponibil", "Nu pot citi progresul indexării de la 127.0.0.1:5000.");
   }
 }
 
 function resetMeta() {
-  refs.confidenceBadge.textContent = "Incredere --";
+  refs.confidenceBadge.textContent = "Încredere --";
   refs.confidenceBadge.className = "meta-badge muted";
   refs.verificationBadge.textContent = "Index local";
   refs.verificationBadge.className = "meta-badge muted";
-  refs.metaLine.textContent = "Paginile oficiale specifice au prioritate fata de paginile generale.";
+  refs.metaLine.textContent = "Paginile oficiale specifice au prioritate față de paginile generale.";
 }
 
 function updateFacultyBadge() {
@@ -442,7 +442,7 @@ function createFeedbackActions(payload) {
   async function sendFeedback(value) {
     useful.disabled = true;
     inaccurate.disabled = true;
-    stateText.textContent = "Se salveaza...";
+    stateText.textContent = "Se salvează...";
     try {
       await postFeedback({ ...payload, feedback: value, created_at: new Date().toISOString() });
       stateText.textContent = "Salvat";
@@ -487,7 +487,7 @@ function updateResultMeta(data) {
   const confidence = data.confidence || "low";
   const score = Number.isFinite(data.confidence_score) ? data.confidence_score : 0;
 
-  refs.confidenceBadge.textContent = `Incredere ${confidence} (${score})`;
+  refs.confidenceBadge.textContent = `Încredere ${confidence} (${score})`;
   refs.confidenceBadge.className = `meta-badge ${confidenceTone(confidence)}`;
 
   refs.verificationBadge.textContent = data.live_verified ? "Verificat live" : "Index local";
@@ -509,10 +509,10 @@ function updateResultMeta(data) {
     metaParts.push("Rutare: regulamente/metodologii");
   }
   if (data.retrieval_backend && data.retrieval_backend !== "qdrant") {
-    metaParts.push(`Mod cautare: ${data.retrieval_backend}`);
+    metaParts.push(`Mod căutare: ${data.retrieval_backend}`);
   }
   if (data.generation_mode && data.generation_mode !== "ollama") {
-    metaParts.push(`Mod raspuns: ${data.generation_mode}`);
+    metaParts.push(`Mod răspuns: ${data.generation_mode}`);
   }
   if (data.confidence_reason) {
     metaParts.push(data.confidence_reason);
@@ -577,31 +577,77 @@ async function loadFaculties() {
   }
 }
 
+function buildHealthMessages(data) {
+  const checks = data?.checks || {};
+  const ollama = data?.ollama || {};
+  const index = data?.index || {};
+  const vectorIndex = data?.vector_index || {};
+  const statusReasons = Array.isArray(data?.status_reasons) ? data.status_reasons : [];
+  const generationModel = ollama.generation_model || "qwen3:4b";
+  const embeddingModel = ollama.embedding_model || "nomic-embed-text";
+  const chunkCount = Number(index.chunk_count || 0);
+  const vectorCount = Number(vectorIndex.points_count || 0);
+  const messages = [];
+
+  if (checks.ollama === false || ollama.available === false) {
+    messages.push("Ollama nu răspunde. Pornește `ollama serve`.");
+  } else {
+    if (checks.generation_model === false || ollama.generation_model_available === false) {
+      messages.push(`Modelul de generare lipsește. Rulează \`ollama pull ${generationModel}\`.`);
+    }
+    if (checks.embedding_model === false || ollama.embedding_model_available === false) {
+      messages.push(`Modelul de embedding lipsește. Rulează \`ollama pull ${embeddingModel}\`.`);
+    }
+  }
+
+  if (checks.json_index === false || index.exists === false || chunkCount === 0) {
+    messages.push("Indexul local lipsește. Rulează `python backend/build_index.py`.");
+  }
+
+  if (checks.qdrant_index === false || vectorIndex.available === false || vectorCount === 0) {
+    if (vectorIndex.available === false || vectorIndex.exists === false) {
+      messages.push("Qdrant este indisponibil. Rulează `docker compose up -d qdrant`.");
+    } else {
+      messages.push("Qdrant nu are vectori indexați. Pornește Qdrant și reconstruiește indexul.");
+    }
+  }
+
+  if (
+    (checks.index_vector_count_match === false || (chunkCount > 0 && vectorCount > 0 && chunkCount !== vectorCount))
+    && chunkCount > 0
+    && vectorCount > 0
+  ) {
+    messages.push("Numărul de chunks din JSON nu corespunde cu punctele din Qdrant. Rulează `python backend/scripts/build_vector_index.py`.");
+  }
+
+  return messages.length ? messages : statusReasons;
+}
+
 async function checkBackend() {
   try {
     const data = await fetchJson("/health", {}, REQUEST_TIMEOUT_MS.health);
-    const chunkCount = data.index?.chunk_count || 0;
-    const vectorCount = data.vector_index?.points_count || 0;
+    const chunkCount = Number(data.index?.chunk_count || 0);
+    const vectorCount = Number(data.vector_index?.points_count || 0);
     const builtAt = data.index?.built_at || "necunoscut";
     const generationModel = data.ollama?.generation_model || "Ollama";
     const embeddingModel = data.ollama?.embedding_model || "embedding local";
-    const statusReasons = Array.isArray(data.status_reasons) ? data.status_reasons : [];
+    const healthMessages = buildHealthMessages(data);
     setBackendOnline(true);
     if (handleIndexingStatus(data.indexing)) {
-      refs.emptyText.textContent = "Indexarea oficiala ruleaza. Intrebarile vor fi disponibile dupa finalizare.";
+      refs.emptyText.textContent = "Indexarea oficială rulează. Întrebările vor fi disponibile după finalizare.";
       return true;
     }
     if (data.status === "ok") {
       setStatus(
         "idle",
-        "Sistem pregatit",
-        `Index oficial: ${chunkCount} fragmente. Vectori: ${vectorCount}. Model raspuns: ${generationModel}. Embedding: ${embeddingModel}. Build: ${builtAt}.`
+        "Sistem pregătit",
+        `Index oficial: ${chunkCount} fragmente. Vectori: ${vectorCount}. Model răspuns: ${generationModel}. Embedding: ${embeddingModel}. Build: ${builtAt}.`
       );
     } else {
       setStatus(
         "warning",
-        "Sistem partial disponibil",
-        statusReasons.length ? statusReasons.join(" ") : "Unele componente locale nu sunt complet disponibile."
+        "Sistem parțial disponibil",
+        healthMessages.length ? healthMessages.join(" ") : "Unele componente locale nu sunt complet disponibile."
       );
     }
     refs.emptyText.textContent = "Exemple: orar, secretariat, admitere, burse, reguli despre cumularea burselor.";
@@ -610,8 +656,8 @@ async function checkBackend() {
     stopIndexingPoll();
     setIndexingBusy(false);
     setBackendOnline(false);
-    setStatus("error", "Backend indisponibil", "Porneste backend-ul Flask pe 127.0.0.1:5000 si reincarca popup-ul.");
-    refs.emptyText.textContent = "Backend-ul nu raspunde. Extensia ramane deschisa, dar nu poate genera raspunsuri.";
+    setStatus("error", "Backend indisponibil", "Pornește backend-ul Flask pe 127.0.0.1:5000 și reîncarcă popup-ul.");
+    refs.emptyText.textContent = "Backend-ul nu răspunde. Extensia rămâne deschisă, dar nu poate genera răspunsuri.";
     return false;
   }
 }
@@ -625,7 +671,7 @@ function applyTheme(theme) {
   const dark = theme === "dark";
   document.body.classList.toggle("dark", dark);
   refs.themeToggle.textContent = dark ? "Light" : "Dark";
-  refs.themeToggle.title = dark ? "Comuta pe tema deschisa" : "Comuta pe tema inchisa";
+  refs.themeToggle.title = dark ? "Comută pe tema deschisă" : "Comută pe tema închisă";
 }
 
 async function toggleTheme() {
@@ -640,7 +686,7 @@ async function sendMessage(prefilledQuestion = null) {
   }
 
   if (state.indexing) {
-    setStatus("loading", "Indexare surse oficiale", "Asteapta finalizarea indexarii inainte de a trimite o intrebare.");
+    setStatus("loading", "Indexare surse oficiale", "Așteaptă finalizarea indexării înainte de a trimite o întrebare.");
     return;
   }
 
@@ -656,7 +702,7 @@ async function sendMessage(prefilledQuestion = null) {
   const history = buildHistoryPayload();
 
   setBusy(true);
-  setStatus("loading", "Analizez intrebarea", "Caut semantic in Qdrant si verific doar sursele de top.");
+  setStatus("loading", "Analizez întrebarea", "Caut semantic în Qdrant și verific doar sursele de top.");
   addUserMessage(question);
   refs.input.value = "";
   addLoadingMessage();
@@ -668,17 +714,17 @@ async function sendMessage(prefilledQuestion = null) {
       body: JSON.stringify({ question, faculty_id: facultyId, history })
     }, REQUEST_TIMEOUT_MS.chat);
     const sources = normalizeSources(data.sources || []);
-    const answer = data.answer || "Nu exista raspuns disponibil.";
+    const answer = data.answer || "Nu există răspuns disponibil.";
     removeLoadingMessage();
     updateResultMeta(data);
 
     if (data.confidence === "low") {
-      setStatus("warning", "Dovezi partiale", "Raspunsul este limitat de sursele oficiale gasite.");
+      setStatus("warning", "Dovezi parțiale", "Răspunsul este limitat de sursele oficiale găsite.");
     } else {
       setStatus(
         "success",
-        "Raspuns pregatit",
-        data.live_verified ? "Sursele principale au fost reverificate live." : "Raspuns generat local cu Ollama din surse oficiale."
+        "Răspuns pregătit",
+        data.live_verified ? "Sursele principale au fost reverificate live." : "Răspuns generat local cu Ollama din surse oficiale."
       );
     }
 
@@ -707,7 +753,7 @@ async function sendMessage(prefilledQuestion = null) {
     if (error.payload?.indexing) {
       handleIndexingStatus(error.payload.indexing);
       setBackendOnline(true);
-      addBotMessage(error.payload.answer || "Indexarea este in curs. Incearca dupa finalizare.");
+      addBotMessage(error.payload.answer || "Indexarea este în curs. Încearcă după finalizare.");
       return;
     }
     setBackendOnline(false);
