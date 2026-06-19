@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 from unittest.mock import patch
 
 import retriever as retriever_module
-from retriever import analyze_query, rank_lexical_index, rank_vector_index
+from retriever import analyze_query, rank_lexical_index, rank_vector_index, vector_search_limit_for_analysis
 
 
 def make_index(chunks: list[dict], built_at: str = "test") -> dict:
@@ -35,6 +35,79 @@ class RetrieverTests(unittest.TestCase):
 
         self.assertEqual(analysis.intent, "orar")
         self.assertIn("orar", analysis.corrected_question)
+
+    def test_navigation_queries_use_broader_vector_candidate_window(self) -> None:
+        schedule_analysis = analyze_query("Unde este publicat orarul pentru studentii de la info?")
+        contact_analysis = analyze_query("Unde gasesc secretariatul Facultatii de Informatica?")
+
+        self.assertEqual(schedule_analysis.intent, "orar")
+        self.assertEqual(contact_analysis.intent, "contact")
+        self.assertGreaterEqual(vector_search_limit_for_analysis(schedule_analysis), 60)
+        self.assertGreaterEqual(vector_search_limit_for_analysis(contact_analysis), 60)
+
+    def test_uvt_contact_query_prefers_central_contact_over_localized_page(self) -> None:
+        index_document = make_index(
+            [
+                {
+                    "chunk_id": "localized",
+                    "faculty_id": "uvt",
+                    "page_type": "studenti",
+                    "title": "Affectation de materiel informatique destine aux etudiants de l'UVT",
+                    "url": "https://uvt.ro/fr/educatie/2024/01/atribuirea-dispozitivelor-it-destinate-studentilor-uvt",
+                    "chunk_text": "Contact UVT pentru studenti si informatii administrative.",
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+                {
+                    "chunk_id": "contact",
+                    "faculty_id": "uvt",
+                    "page_type": "contact",
+                    "title": "Contact - UVT",
+                    "url": "https://uvt.ro/contact",
+                    "chunk_text": "Pagina oficiala de contact a Universitatii de Vest din Timisoara.",
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+            ],
+            built_at="contact-test",
+        )
+
+        result = rank_lexical_index("Unde gasesc datele de contact UVT?", index_document, "uvt", top_k=2)
+
+        self.assertEqual(result["chunks"][0]["chunk_id"], "contact")
+        self.assertIn("contact_exact_path", result["chunks"][0]["match_signals"])
+        self.assertNotIn("localized", [chunk["chunk_id"] for chunk in result["chunks"][:1]])
+
+    def test_vector_rank_injects_canonical_uvt_contact_source(self) -> None:
+        contact_chunk = {
+            "chunk_id": "contact",
+            "faculty_id": "uvt",
+            "page_type": "contact",
+            "title": "Contact - UVT",
+            "url": "https://uvt.ro/contact",
+            "chunk_text": "Pagina oficiala de contact a Universitatii de Vest din Timisoara.",
+            "last_indexed": "2026-01-01T00:00:00+00:00",
+        }
+        bad_semantic_hit = {
+            "chunk_id": "contract",
+            "faculty_id": "uvt",
+            "page_type": "studenti",
+            "title": "Contract de inchiriere",
+            "url": "https://uvt.ro/wp-content/uploads/sites/3/2025/07/Contract-de-inchiriere-2025-2026-pentru-site.pdf",
+            "chunk_text": "Contract pentru cazare.",
+            "semantic_score": 0.91,
+            "vector_filter": "uvt",
+            "last_indexed": "2026-01-01T00:00:00+00:00",
+        }
+
+        with patch.object(retriever_module, "_retrieve_semantic_candidates", return_value=[bad_semantic_hit]):
+            result = rank_vector_index(
+                "Unde gasesc datele de contact UVT?",
+                make_index([contact_chunk], built_at="canonical-contact-test"),
+                "uvt",
+                top_k=2,
+            )
+
+        self.assertEqual(result["chunks"][0]["chunk_id"], "contact")
+        self.assertIn("canonical_contact", result["chunks"][0]["match_signals"])
 
     def test_query_analysis_preserves_numeric_tokens(self) -> None:
         analysis = analyze_query("Poate un student sa primeasca 2 burse?")
@@ -200,6 +273,82 @@ class RetrieverTests(unittest.TestCase):
         self.assertEqual(result["chunks"][0]["chunk_id"], "stable-process")
         self.assertIn("admission_process_path", result["chunks"][0]["match_signals"])
         self.assertIn("admission_dated_news_penalty", result["chunks"][1]["match_signals"])
+
+    def test_academic_calendar_query_prefers_year_structure_page(self) -> None:
+        index_document = make_index(
+            [
+                {
+                    "chunk_id": "old-course-news",
+                    "faculty_id": "uvt",
+                    "page_type": "studenti",
+                    "title": "ProLitRom cursuri de perfectionare",
+                    "url": "https://uvt.ro/blog/2021/02/prolitrom-cursuri-de-perfectionare",
+                    "chunk_text": "Cursuri de perfectionare pentru profesori.",
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+                {
+                    "chunk_id": "calendar",
+                    "faculty_id": "uvt",
+                    "page_type": "studenti",
+                    "title": "Structura anului universitar",
+                    "url": "https://uvt.ro/educatie/info-studenti-proces-educational/structura-anului-universitar",
+                    "chunk_text": "Structura anului universitar contine saptamanile de cursuri, sesiune si vacante.",
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+            ],
+            built_at="calendar-test",
+        )
+
+        result = rank_lexical_index("Unde vad saptamanile de cursuri si sesiune?", index_document, "uvt", top_k=2)
+
+        self.assertEqual(result["chunks"][0]["chunk_id"], "calendar")
+        self.assertIn("academic_calendar", result["chunks"][0]["match_signals"])
+
+    def test_calendar_queries_use_targeted_vector_search_text(self) -> None:
+        question = "Unde verific vacantele din anul universitar?"
+        analysis = analyze_query(question)
+
+        self.assertGreaterEqual(vector_search_limit_for_analysis(analysis), 80)
+        embedding_texts = retriever_module.build_query_embedding_texts(question, analysis)
+
+        self.assertTrue(any("Structura anului universitar" in text for text in embedding_texts[1:]))
+
+    def test_housing_queries_do_not_get_calendar_targeted_search_text(self) -> None:
+        question = "Unde vad taxele pentru camine?"
+        analysis = analyze_query(question)
+        embedding_texts = retriever_module.build_query_embedding_texts(question, analysis)
+
+        self.assertFalse(any("Structura anului universitar" in text for text in embedding_texts[1:]))
+
+    def test_semester_query_prefers_stable_calendar_over_old_news(self) -> None:
+        index_document = make_index(
+            [
+                {
+                    "chunk_id": "old-semester-news",
+                    "faculty_id": "uvt",
+                    "page_type": "studenti",
+                    "title": "Semestrul al doilea incepe in regim diferentiat, la UVT",
+                    "url": "https://uvt.ro/blog/semestrul-al-doilea-incepe-in-regim-diferentiat-la-uvt",
+                    "chunk_text": "Semestrul al doilea incepe in regim diferentiat conform unei decizii din 2021.",
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+                {
+                    "chunk_id": "calendar",
+                    "faculty_id": "uvt",
+                    "page_type": "studenti",
+                    "title": "Structura anului universitar",
+                    "url": "https://uvt.ro/educatie/info-studenti-proces-educational/structura-anului-universitar",
+                    "chunk_text": "Structura anului universitar contine semestrul al doilea, cursuri, sesiuni si vacante.",
+                    "last_indexed": "2026-01-01T00:00:00+00:00",
+                },
+            ],
+            built_at="semester-calendar-test",
+        )
+
+        result = rank_lexical_index("Cand incepe semestrul al doilea?", index_document, "uvt", top_k=2)
+
+        self.assertEqual(result["chunks"][0]["chunk_id"], "calendar")
+        self.assertIn("academic_calendar", result["chunks"][0]["match_signals"])
 
     def test_vector_rank_does_not_prepare_full_index_when_semantic_hits_exist(self) -> None:
         semantic_hit = {

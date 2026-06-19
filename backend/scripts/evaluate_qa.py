@@ -10,28 +10,27 @@ from pathlib import Path
 
 try:
     import requests
-except ModuleNotFoundError:  # pragma: no cover - depends on local environment.
+except ModuleNotFoundError:  # pragma: no cover
     requests = None
 
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = BACKEND_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from evaluation.rag_eval import build_evaluation_result, calculate_metrics
+from evaluation.qa_compare import calculate_qa_metrics, compare_qa_result
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:5000"
-DEFAULT_QUESTIONS = BACKEND_DIR / "evaluation" / "eval_questions.json"
+DEFAULT_QUESTIONS = BACKEND_DIR / "evaluation" / "eval_qa_100.json"
 DEFAULT_OUT_DIR = BACKEND_DIR / "data" / "evaluation"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate UVT_Asist RAG answers through the /chat endpoint.")
+    parser = argparse.ArgumentParser(description="Compare /chat answers with a 100-question ideal Q&A rubric.")
     parser.add_argument("--backend-url", default=DEFAULT_BACKEND_URL)
     parser.add_argument("--questions", default=str(DEFAULT_QUESTIONS))
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR))
@@ -43,10 +42,10 @@ def parse_args() -> argparse.Namespace:
 
 def load_questions(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    questions = data.get("questions") if isinstance(data, dict) else data
+        payload = json.load(handle)
+    questions = payload.get("questions") if isinstance(payload, dict) else payload
     if not isinstance(questions, list):
-        raise ValueError("Questions file must contain a JSON list or an object with a 'questions' list.")
+        raise ValueError("Questions file must be a JSON list or an object with a questions list.")
     return [item for item in questions if isinstance(item, dict)]
 
 
@@ -104,20 +103,21 @@ def write_csv(path: Path, results: list[dict]) -> None:
         "category",
         "faculty_id",
         "question",
-        "should_have_answer",
+        "qa_score",
+        "passed",
         "confidence",
         "confidence_score",
-        "matched_faculty_id",
-        "retrieval_backend",
-        "generation_mode",
-        "live_verified",
-        "latency_seconds",
+        "confidence_match",
         "top1_url_match",
         "top3_url_match",
+        "required_phrase_coverage",
+        "ideal_token_coverage",
         "expected_unanswerable_handled",
-        "error",
+        "latency_seconds",
+        "retrieval_backend",
+        "generation_mode",
         "top_source_url",
-        "top_source_title",
+        "error",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
@@ -126,68 +126,59 @@ def write_csv(path: Path, results: list[dict]) -> None:
             writer.writerow({field: result.get(field, "") for field in fields})
 
 
-def write_markdown_summary(path: Path, created_at: str, backend_url: str, metrics: dict, results: list[dict]) -> None:
-    failed = [result for result in results if result.get("error")]
-    missed_top3 = [
-        result
-        for result in results
-        if result.get("expected_url_contains") and not result.get("top3_url_match") and not result.get("error")
-    ]
-    unhandled = [
-        result
-        for result in results
-        if result.get("should_have_answer") is False
-        and not result.get("expected_unanswerable_handled")
-        and not result.get("error")
-    ]
-
+def write_markdown(path: Path, created_at: str, backend_url: str, metrics: dict, results: list[dict]) -> None:
+    weakest = sorted(results, key=lambda item: int(item.get("qa_score", 0)))[:20]
     lines = [
-        "# UVT_Asist RAG Evaluation Summary",
+        "# UVT_Asist 100 Q&A Evaluation",
         "",
         f"- Created at: `{created_at}`",
         f"- Backend: `{backend_url}`",
         f"- Total questions: `{metrics['total_questions']}`",
-        f"- Answered: `{metrics['answered_count']}`",
-        f"- Low confidence: `{metrics['low_confidence_count']}`",
+        f"- Passed: `{metrics['passed_count']}`",
+        f"- Failed: `{metrics['failed_count']}`",
+        f"- Average QA score: `{metrics['average_qa_score']}`",
+        f"- Median QA score: `{metrics['median_qa_score']}`",
         f"- Top-1 URL matches: `{metrics['top1_url_match_count']}`",
         f"- Top-3 URL matches: `{metrics['top3_url_match_count']}`",
+        f"- Confidence matches: `{metrics['confidence_match_count']}`",
         f"- Expected unanswerable handled: `{metrics['expected_unanswerable_handled_count']}`",
         f"- Average latency: `{metrics['average_latency_seconds']}s`",
         f"- Median latency: `{metrics['median_latency_seconds']}s`",
         "",
+        "## Weakest Results",
+        "",
+        "| ID | Score | Top Source | Required Coverage | Notes |",
+        "| --- | ---: | --- | ---: | --- |",
     ]
-
-    if failed:
-        lines.extend(["## Errors", "", "| ID | Error |", "| --- | --- |"])
-        lines.extend(f"| {item['id']} | {str(item.get('error', '')).replace('|', '/')} |" for item in failed[:25])
-        lines.append("")
-
-    if missed_top3:
-        lines.extend(["## Expected URL Misses", "", "| ID | Top Source | Expected |", "| --- | --- | --- |"])
-        for item in missed_top3[:25]:
-            expected = ", ".join(item.get("expected_url_contains", []))
-            lines.append(f"| {item['id']} | {item.get('top_source_url', '')} | {expected} |")
-        lines.append("")
-
-    if unhandled:
-        lines.extend(["## Unanswerable Not Handled", "", "| ID | Confidence | Top Source |", "| --- | --- | --- |"])
-        for item in unhandled[:25]:
-            lines.append(f"| {item['id']} | {item.get('confidence', '')} | {item.get('top_source_url', '')} |")
-        lines.append("")
-
+    for item in weakest:
+        notes = []
+        if not item.get("top3_url_match"):
+            notes.append("source miss")
+        if item.get("required_phrase_coverage", 1) < 0.75:
+            notes.append("keyword miss")
+        if not item.get("confidence_match"):
+            notes.append("confidence")
+        if item.get("forbidden_phrases_found"):
+            notes.append("forbidden phrase")
+        if item.get("error"):
+            notes.append("error")
+        lines.append(
+            f"| {item['id']} | {item.get('qa_score', 0)} | {item.get('top_source_url', '')} | "
+            f"{item.get('required_phrase_coverage', 0)} | {', '.join(notes)} |"
+        )
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def print_summary(metrics: dict, output_paths: dict[str, Path]) -> None:
-    print("\nRezumat evaluare RAG")
+    print("\nRezumat evaluare Q&A")
     print(f"- Întrebări evaluate: {metrics['total_questions']}")
-    print(f"- Răspunsuri primite: {metrics['answered_count']}")
-    print(f"- Confidence low: {metrics['low_confidence_count']}")
+    print(f"- Trecute: {metrics['passed_count']}")
+    print(f"- Eșuate: {metrics['failed_count']}")
+    print(f"- Scor mediu Q&A: {metrics['average_qa_score']}")
     print(f"- Top-1 URL match: {metrics['top1_url_match_count']}")
     print(f"- Top-3 URL match: {metrics['top3_url_match_count']}")
-    print(f"- Întrebări fără răspuns sigur tratate corect: {metrics['expected_unanswerable_handled_count']}")
+    print(f"- Confidence match: {metrics['confidence_match_count']}")
     print(f"- Latență medie: {metrics['average_latency_seconds']}s")
-    print(f"- Latență mediană: {metrics['median_latency_seconds']}s")
     print(f"- JSON: {output_paths['json']}")
     print(f"- CSV: {output_paths['csv']}")
     print(f"- Markdown: {output_paths['markdown']}")
@@ -206,9 +197,8 @@ def main() -> int:
     try:
         questions = filter_questions(load_questions(questions_path), args.category, args.limit)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"ERROR: Nu pot citi întrebările de evaluare din {questions_path}: {exc}")
+        print(f"ERROR: Nu pot citi întrebările Q&A din {questions_path}: {exc}")
         return 2
-
     if not questions:
         print("WARNING: Nu există întrebări de evaluat pentru filtrele date.")
         return 0
@@ -229,20 +219,23 @@ def main() -> int:
             payload = post_chat(session, backend_url, question, args.timeout)
         except (requests.RequestException, RuntimeError, ValueError) as exc:
             error = str(exc)
-        latency = time.perf_counter() - start
-        result = build_evaluation_result(question, payload, latency, error=error)
+        result = compare_qa_result(question, payload, time.perf_counter() - start, error)
         results.append(result)
-        status = "ERROR" if error else "OK"
-        print(f"[{index}/{total}] {status} {result['id']} ({result['latency_seconds']}s)")
+        status = "PASS" if result["passed"] else "FAIL"
+        print(
+            f"[{index}/{total}] {status} {result['id']} score={result['qa_score']} "
+            f"({result['latency_seconds']}s)",
+            flush=True,
+        )
 
-    metrics = calculate_metrics(results)
+    metrics = calculate_qa_metrics(results)
     created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir.mkdir(parents=True, exist_ok=True)
     output_paths = {
-        "json": out_dir / f"eval_results_{timestamp}.json",
-        "csv": out_dir / f"eval_results_{timestamp}.csv",
-        "markdown": out_dir / f"eval_summary_{timestamp}.md",
+        "json": out_dir / f"qa_eval_results_{timestamp}.json",
+        "csv": out_dir / f"qa_eval_results_{timestamp}.csv",
+        "markdown": out_dir / f"qa_eval_summary_{timestamp}.md",
     }
     write_json(output_paths["json"], {
         "created_at": created_at,
@@ -253,9 +246,9 @@ def main() -> int:
         "results": results,
     })
     write_csv(output_paths["csv"], results)
-    write_markdown_summary(output_paths["markdown"], created_at, backend_url, metrics, results)
+    write_markdown(output_paths["markdown"], created_at, backend_url, metrics, results)
     print_summary(metrics, output_paths)
-    return 1 if any(result.get("error") for result in results) else 0
+    return 1 if metrics["failed_count"] else 0
 
 
 if __name__ == "__main__":

@@ -31,7 +31,8 @@ INTENT_KEYWORDS = {
     "studenti": (
         "student", "studenti", "cazare", "camin", "camine", "taxa", "taxe", "studentweb",
         "calendar academic", "structura anului", "an universitar", "anul universitar",
-        "inceperea anului", "credite voluntariat", "credite de voluntariat", "portofoliu", "portofolii",
+        "inceperea anului", "semestru", "sesiune", "sesiuni", "vacanta", "vacante", "saptamani",
+        "credite voluntariat", "credite de voluntariat", "portofoliu", "portofolii",
         "voluntariat", "acte cazare", "dosar cazare",
     ),
 }
@@ -57,6 +58,7 @@ PAGE_HINTS = {
     ),
     "studenti": (
         "studenti", "studentweb", "cazare", "camine", "camin", "taxe", "calendar", "structura anului",
+        "semestru", "sesiune", "sesiuni", "vacanta", "vacante", "saptamani",
         "voluntariat", "credite-voluntariat", "credite voluntariat", "portofoliu", "dosar-cazare",
     ),
 }
@@ -140,6 +142,14 @@ TOKEN_ALIASES = {
     "venitului": "venituri",
     "sociala": "social",
     "sociale": "social",
+    "saptamana": "saptamani",
+    "saptamanile": "saptamani",
+    "saptamanilor": "saptamani",
+    "semestrul": "semestru",
+    "semestrului": "semestru",
+    "vacanta": "vacante",
+    "vacantele": "vacante",
+    "vacantelor": "vacante",
 }
 
 STOPWORDS = {
@@ -158,8 +168,9 @@ DOMAIN_VOCABULARY = {
     "metodologii", "orar", "orare", "procedura",
     "model", "portofoliu", "portofolii", "proceduri", "proba", "program", "regulament", "regulamente",
     "raport", "recunoastere", "secretariat", "student", "studenti", "subiect", "subiecte", "voluntariat",
-    "an", "calendar", "camin", "camine", "incepe", "inceperea", "parola", "studentweb",
-    "structura", "taxa", "taxe", "telefon", "universitar", "uvt", "wifi", "credit", "credite",
+    "an", "calendar", "camin", "camine", "cursuri", "incepe", "inceperea", "parola", "saptamani",
+    "semestru", "sesiune", "sesiuni", "studentweb", "structura", "taxa", "taxe", "telefon",
+    "universitar", "uvt", "vacante", "wifi", "credit", "credite",
     "familie", "financiar", "monoparentala", "orfan", "orfani", "parinte", "parinti", "social",
     "sociale", "sprijin", "venit", "venituri", "divort", "sentinta", "deces", "intretinere",
 }
@@ -205,6 +216,10 @@ STRONG_SOCIAL_CONTEXT_TERMS = (
     "handicap", "dizabilitati", "vulnerabil",
 )
 HOUSING_TERMS = ("cazare", "camin", "camine")
+ACADEMIC_CALENDAR_TERMS = (
+    "calendar", "structura", "universitar", "semestru", "sesiune", "sesiuni",
+    "vacante", "saptamani",
+)
 OFF_TOPIC_SOCIAL_POLICY_TERMS = (
     "recunoasterea-perioadelor",
     "recunoastere perioadelor",
@@ -249,6 +264,27 @@ def _is_social_document_question(tokens: Iterable[str]) -> bool:
 def _is_housing_document_question(tokens: Iterable[str]) -> bool:
     token_set = set(tokens)
     return _has_document_request(token_set) and _has_housing_context(token_set)
+
+
+def is_academic_calendar_query(question_text: str, tokens: Iterable[str]) -> bool:
+    token_set = set(tokens)
+    normalized_question = normalize(question_text)
+    if {"semestru", "sesiune", "sesiuni", "vacante", "saptamani"} & token_set:
+        return True
+    if "calendar academic" in normalized_question or "structura anului" in normalized_question:
+        return True
+    return bool({"calendar", "structura"} & token_set and {"an", "universitar"} & token_set)
+
+
+def is_central_uvt_contact_query(analysis: "QueryAnalysis") -> bool:
+    if analysis.intent != "contact":
+        return False
+    normalized_question = normalize(analysis.corrected_question)
+    return (
+        "uvt" in normalized_question
+        or "universitate" in normalized_question
+        or "administrativ" in normalized_question
+    )
 
 
 @dataclass(frozen=True)
@@ -338,6 +374,8 @@ def _score_intents(question: str, tokens: Iterable[str]) -> dict[str, int]:
 
     if "program" in token_set and {"secretariat", "contact"} & token_set:
         scores["contact"] += 4
+    if {"orar", "orare"} & token_set:
+        scores["orar"] += 5
     if "dosar" in token_set and ({"admitere", "inscriere", "candidat"} & token_set or "dosar de admitere" in question_text):
         scores["admitere"] += 4
     if {"burse", "bursa"} & token_set and {"2", "cumulare", "beneficia", "conditii", "eligibil"} & token_set:
@@ -423,7 +461,10 @@ def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: 
         "contact": ("contact", "secretariat", "telefon", "email", "adresa"),
         "admitere": ("admitere", "inscriere", "candidat", "dosar"),
         "regulamente": ("regulament", "regulamente", "metodologie", "procedura", "anexa"),
-        "studenti": ("student", "studenti", "studentweb", "cazare", "camin", "camine", "taxe", "calendar", "structura", "universitar"),
+        "studenti": (
+            "student", "studenti", "studentweb", "cazare", "camin", "camine", "taxe",
+            "calendar", "structura", "universitar", "semestru", "sesiune", "vacante", "saptamani",
+        ),
     }
 
     for token in synonyms.get(intent, ()):
@@ -909,6 +950,10 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
         and token not in {"student", "studenti", "uvt", "informatii", "informatie"}
         and _contains_token(title_url, token)
     }
+    if path.startswith(("/fr/", "/en/")):
+        score -= 30
+        signals.append("localized_page_penalty")
+
     if len(title_url_specific_matches) >= 2:
         score += min(64, 18 * len(title_url_specific_matches))
         signals.append(f"title_url_specific:{len(title_url_specific_matches)}")
@@ -1017,7 +1062,7 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
         query_tokens = set(analysis.tokens)
         asks_housing = bool({"cazare", "camin", "camine"} & query_tokens)
         asks_fees = bool({"taxa", "taxe"} & query_tokens)
-        asks_calendar = bool({"calendar", "structura", "universitar", "an", "incepe", "inceperea"} & query_tokens)
+        asks_calendar = is_academic_calendar_query(analysis.corrected_question, query_tokens)
 
         if asks_housing and _contains_any(title_url, ("cazare", "camin", "camine")):
             score += 46
@@ -1050,6 +1095,13 @@ def _specific_page_score(chunk: dict, analysis: QueryAnalysis) -> tuple[float, l
         elif asks_calendar:
             score -= 55
             signals.append("calendar_missing")
+
+        dated_year = _upload_year_from_path(path)
+        if asks_calendar and dated_year:
+            current_year = _current_academic_year_start()
+            if dated_year < current_year - 1:
+                score -= min(80, 16 * (current_year - dated_year - 1))
+                signals.append("calendar_dated_news_penalty")
 
     query_tokens = set(analysis.expanded_tokens)
     if _has_housing_context(query_tokens) and _contains_any(title_url, ("cazare", "camin", "camine")):
@@ -1339,6 +1391,21 @@ def _prefer_policy_candidates(scored: list[dict], analysis: QueryAnalysis) -> li
     return preferred if preferred else scored
 
 
+def _prefer_academic_calendar_candidates(scored: list[dict], analysis: QueryAnalysis) -> list[dict]:
+    if not is_academic_calendar_query(analysis.corrected_question, analysis.tokens):
+        return scored
+
+    calendar_candidates = [
+        chunk for chunk in scored
+        if "academic_calendar" in chunk.get("match_signals", [])
+        or _contains_any(
+            normalize(f"{chunk.get('title', '')} {chunk.get('url', '')} {chunk.get('chunk_text', '')[:1800]}"),
+            ("structura anului universitar", "structura-anului-universitar", "calendar academic"),
+        )
+    ]
+    return calendar_candidates if calendar_candidates else scored
+
+
 def _prefer_selected_scope_candidates(scored: list[dict], selected_faculty: str) -> list[dict]:
     if selected_faculty != GENERAL_FACULTY_ID or not scored:
         return scored
@@ -1399,6 +1466,19 @@ def build_query_embedding_texts(question: str, analysis: QueryAnalysis) -> list[
     texts = [build_query_embedding_text(question, analysis)]
     query_tokens = set(analysis.expanded_tokens)
 
+    if analysis.intent == "contact":
+        texts.append(
+            "Intrebare student despre pagina oficiala de contact UVT.\n"
+            "Cautare prioritara: Contact Universitatea de Vest din Timisoara, adresa, telefon, email, InfoCentru, rectorat."
+        )
+
+    if is_academic_calendar_query(analysis.corrected_question, analysis.tokens):
+        texts.append(
+            "Intrebare student despre calendarul academic UVT.\n"
+            "Cautare prioritara: Structura anului universitar. "
+            "Saptamani de cursuri, semestrul I, semestrul al doilea, sesiuni de examene, vacante, anul universitar."
+        )
+
     if _is_social_document_question(query_tokens) and not _is_housing_document_question(query_tokens):
         texts.append(
             "Intrebare student despre acte pentru bursa sociala.\n"
@@ -1419,6 +1499,10 @@ def build_query_embedding_texts(question: str, analysis: QueryAnalysis) -> list[
 
 def vector_search_limit_for_analysis(analysis: QueryAnalysis) -> int:
     query_tokens = set(analysis.expanded_tokens)
+    if analysis.intent in {"orar", "contact"}:
+        return max(VECTOR_SEARCH_LIMIT, 60)
+    if is_academic_calendar_query(analysis.corrected_question, analysis.tokens):
+        return max(VECTOR_SEARCH_LIMIT, 80)
     if _is_social_document_question(query_tokens):
         return max(VECTOR_SEARCH_LIMIT, 60)
     if _is_housing_document_question(query_tokens):
@@ -1524,6 +1608,7 @@ def _score_semantic_candidates(
         scored.append(candidate)
 
     scored = _prefer_policy_candidates(scored, analysis)
+    scored = _prefer_academic_calendar_candidates(scored, analysis)
     scored = _prefer_selected_scope_candidates(scored, selected_faculty)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
     return scored
@@ -1552,6 +1637,7 @@ def _score_lexical_backfill_candidates(
         scored.append(candidate)
 
     scored = _prefer_policy_candidates(scored, analysis)
+    scored = _prefer_academic_calendar_candidates(scored, analysis)
     scored = _prefer_selected_scope_candidates(scored, selected_faculty)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
     return scored[:limit]
@@ -1578,6 +1664,32 @@ def _merge_scored_candidates(candidate_groups: list[list[dict]]) -> list[dict]:
     return scored
 
 
+def _canonical_central_contact_candidates(index_document: dict, analysis: QueryAnalysis) -> list[dict]:
+    if not is_central_uvt_contact_query(analysis):
+        return []
+
+    candidates: list[dict] = []
+    for chunk in index_document.get("chunks", []):
+        if str(chunk.get("faculty_id") or GENERAL_FACULTY_ID) != GENERAL_FACULTY_ID:
+            continue
+        if str(chunk.get("url") or "").rstrip("/") != "https://uvt.ro/contact":
+            continue
+        prepared_chunk = _prepare_chunk(chunk)
+        candidate = score_chunk_candidate(prepared_chunk, analysis, GENERAL_FACULTY_ID, {})
+        candidate["retrieval_score"] = max(float(candidate.get("retrieval_score", 0) or 0), 180.0)
+        candidate["semantic_score"] = 0.0
+        candidate["vector_filter"] = "canonical_contact"
+        candidate["match_signals"] = list(dict.fromkeys([
+            *candidate.get("match_signals", []),
+            "canonical_contact",
+        ]))
+        candidates.append(candidate)
+        if len(candidates) >= 2:
+            break
+
+    return candidates
+
+
 def rank_vector_index(question: str, index_document: dict, selected_faculty: str, top_k: int = 6) -> dict:
     analysis = analyze_query(question)
     semantic_hits = _retrieve_semantic_candidates(question, analysis, selected_faculty)
@@ -1596,6 +1708,8 @@ def rank_vector_index(question: str, index_document: dict, selected_faculty: str
             prepared_index.get("idf", {}),
         )
         scored = _merge_scored_candidates([scored, lexical_backfill])
+    if selected_faculty == GENERAL_FACULTY_ID:
+        scored = _merge_scored_candidates([scored, _canonical_central_contact_candidates(index_document, analysis)])
 
     chunks = select_diverse_chunks(
         scored,
@@ -1628,6 +1742,7 @@ def rank_lexical_index(question: str, index_document: dict, selected_faculty: st
             scored.append(candidate)
 
     scored = _prefer_policy_candidates(scored, analysis)
+    scored = _prefer_academic_calendar_candidates(scored, analysis)
     scored = _prefer_selected_scope_candidates(scored, selected_faculty)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
     chunks = select_diverse_chunks(
@@ -1681,6 +1796,7 @@ def rank_runtime_chunks(
     ]
     scored = [chunk for chunk in scored if chunk["retrieval_score"] > 0]
     scored = _prefer_policy_candidates(scored, analysis)
+    scored = _prefer_academic_calendar_candidates(scored, analysis)
     scored.sort(key=lambda item: item["retrieval_score"], reverse=True)
     selected = select_diverse_chunks(scored, top_k=top_k, max_chunks_per_url=max_chunks_per_url_for_analysis(analysis))
     confidence = compute_confidence(selected, analysis)

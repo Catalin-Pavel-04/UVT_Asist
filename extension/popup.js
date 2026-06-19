@@ -757,8 +757,8 @@ async function sendMessage(prefilledQuestion = null) {
       return;
     }
     setBackendOnline(false);
-    setStatus("error", "Nu m-am putut conecta", error.message || "Verifica daca backend-ul Flask ruleaza pe 127.0.0.1:5000.");
-    addBotMessage("Nu m-am putut conecta la backend-ul Flask. Verifica serviciile locale si incearca din nou.");
+    setStatus("error", "Nu m-am putut conecta", error.message || "Verifică dacă backend-ul Flask rulează pe 127.0.0.1:5000.");
+    addBotMessage("Nu m-am putut conecta la backend-ul Flask. Verifică serviciile locale și încearcă din nou.");
   } finally {
     setBusy(false);
   }

@@ -72,6 +72,8 @@ ollama pull nomic-embed-text
 docker compose up -d qdrant
 ```
 
+Qdrant uses the pinned image from `docker-compose.yml` for thesis demo reproducibility. If the Qdrant version is changed later, rebuild the vector index before presenting.
+
 4. Build the JSON and Qdrant indexes:
 
 ```powershell
@@ -109,7 +111,7 @@ ollama pull nomic-embed-text
 ollama serve
 ```
 
-Start Qdrant with Docker:
+Start Qdrant with Docker Compose. The Compose file pins the Qdrant image for reproducible demos:
 
 ```powershell
 docker compose up -d qdrant
@@ -128,6 +130,7 @@ QDRANT_PATH=backend/data/qdrant_local
 ```
 
 For thesis demos, the Docker/server mode is easier to inspect and reset.
+Keep the pinned Qdrant version from `docker-compose.yml` for demos. If you change it, run `python backend\scripts\build_vector_index.py` or rebuild the full index before relying on retrieval results.
 
 ## Run The Application
 
@@ -193,6 +196,10 @@ The script checks Python imports, `backend/.env`, Ollama availability, configure
 - `docker compose up -d qdrant`
 - `python backend/build_index.py`
 - `python backend/app.py`
+
+## Checklist demo
+
+Use [docs/demo_checklist.md](docs/demo_checklist.md) before the thesis presentation. It lists the local services to start, the questions to demonstrate, and the UI evidence to show to the committee.
 
 ## Build Or Rebuild The Index
 
@@ -344,6 +351,8 @@ Generated reports are written under `backend/data/evaluation/`:
 
 `backend/data/evaluation/` is ignored by Git because it contains generated local reports. The stable evaluation dataset in `backend/evaluation/eval_questions.json` is versioned.
 
+For thesis write-up guidance and a reporting table template, see [docs/evaluation/README.md](docs/evaluation/README.md).
+
 Metric meaning:
 
 - `top1_url_match`: the first returned source URL contains one expected official URL fragment.
@@ -363,13 +372,13 @@ Metric meaning:
 
 ## Example Queries
 
-- Faculty `info`: `Unde gasesc orarul?`
-- Faculty `info`: `Unde gasesc secretariatul facultatii de informatica?`
-- Faculty `uvt`: `Este posibil ca un student sa beneficieze de 2 burse?`
+- Faculty `info`: `Unde găsesc orarul?`
+- Faculty `info`: `Unde găsesc secretariatul Facultății de Informatică?`
+- Faculty `uvt`: `Este posibil ca un student să beneficieze de 2 burse?`
 - Faculty `uvt`: `Se pot cumula bursele?`
 - Faculty `uvt`: `Cum se depune dosarul pentru creditele de voluntariat?`
-- Faculty `uvt`: `Unde gasesc informatii despre admitere?`
-- Faculty `info`: `Unde gasesc orrarul la info?`
+- Faculty `uvt`: `Unde găsesc informații despre admitere?`
+- Faculty `info`: `Unde găsesc orrarul la info?`
 
 Expected behavior:
 
@@ -417,11 +426,11 @@ python backend\scripts\evaluate_rag.py
 
 Manual popup checklist:
 
-1. `info` faculty, ask `Unde gasesc orarul?`; top source should be `info.uvt.ro/orare`.
-2. `info` faculty, ask `Unde gasesc secretariatul facultatii de informatica?`; top source should be `info.uvt.ro/contact`.
-3. `uvt` faculty, ask `Este posibil ca un student sa beneficieze de 2 burse?`; source should be a scholarship methodology/regulation page.
-4. Ask `Unde gasesc informatii despre admitere?`; returned sources should be official admission pages.
-5. `info` faculty, ask `Unde gasesc orrarul la info?`; the Informatics schedule page should still win.
+1. `info` faculty, ask `Unde găsesc orarul?`; top source should be `info.uvt.ro/orare`.
+2. `info` faculty, ask `Unde găsesc secretariatul Facultății de Informatică?`; top source should be `info.uvt.ro/contact`.
+3. `uvt` faculty, ask `Este posibil ca un student să beneficieze de 2 burse?`; source should be a scholarship methodology/regulation page.
+4. Ask `Unde găsesc informații despre admitere?`; returned sources should be official admission pages.
+5. `info` faculty, ask `Unde găsesc orrarul la info?`; the Informatics schedule page should still win.
 6. Stop Flask and open the popup; it should show the backend unavailable state.
 7. Ask a vague or unsupported question; confidence should be low and sources should remain official.
 

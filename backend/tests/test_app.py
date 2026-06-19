@@ -58,7 +58,10 @@ class AppTests(unittest.TestCase):
             patch.object(app_module, "rank_index", return_value=retrieval_result),
             patch.object(app_module, "ask_ollama_json", side_effect=AssertionError("LLM should not be called")),
         ):
-            response = self.client.post("/chat", json={"question": "ceva imposibil", "faculty_id": "uvt"})
+            response = self.client.post(
+                "/chat",
+                json={"question": "intrebare imposibila despre document local", "faculty_id": "uvt"},
+            )
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
@@ -112,6 +115,97 @@ class AppTests(unittest.TestCase):
         self.assertEqual(payload["generation_mode"], "ollama")
         self.assertEqual(payload["answer"], "Sursele recuperate sunt prea generale pentru un raspuns sigur.")
         ask_ollama.assert_called_once()
+
+    def test_central_uvt_contact_does_not_require_faculty_clarification(self) -> None:
+        faculty = {"id": "uvt", "name": "UVT"}
+
+        self.assertFalse(app_module.needs_faculty_clarification(
+            faculty,
+            {"analysis": {"intent": "contact", "corrected_question": "unde gasesc datele de contact uvt"}},
+        ))
+        self.assertTrue(app_module.needs_faculty_clarification(
+            faculty,
+            {"analysis": {"intent": "contact", "corrected_question": "unde gasesc secretariatul"}},
+        ))
+
+    def test_central_uvt_contact_source_is_prioritized(self) -> None:
+        retrieval_result = {
+            "analysis": {"intent": "contact", "corrected_question": "unde gasesc datele de contact uvt"},
+            "chunks": [
+                {
+                    "chunk_id": "contract",
+                    "faculty_id": "uvt",
+                    "page_type": "studenti",
+                    "title": "Contract de inchiriere",
+                    "url": "https://uvt.ro/wp-content/uploads/sites/3/2025/07/Contract-de-inchiriere.pdf",
+                    "chunk_text": "Contract pentru cazare.",
+                    "retrieval_score": 80,
+                    "match_signals": [],
+                }
+            ],
+            "confidence": "high",
+            "confidence_score": 90,
+            "confidence_reason": "Test.",
+            "retrieval_backend": "qdrant",
+        }
+        contact_chunk = {
+            "chunk_id": "contact",
+            "faculty_id": "uvt",
+            "page_type": "contact",
+            "title": "Contact - UVT",
+            "url": "https://uvt.ro/contact",
+            "chunk_text": "Pagina oficiala de contact a Universitatii de Vest din Timisoara.",
+        }
+
+        with patch.object(app_module, "load_index", return_value={"chunks": [contact_chunk]}):
+            result = app_module.ensure_canonical_uvt_contact_source(
+                "Unde gasesc datele de contact UVT?",
+                {"id": "uvt", "name": "UVT"},
+                retrieval_result,
+            )
+
+        self.assertEqual(result["chunks"][0]["url"], "https://uvt.ro/contact")
+        self.assertIn("canonical_contact", result["chunks"][0]["match_signals"])
+
+    def test_housing_calendar_navigation_topic_stays_housing(self) -> None:
+        topic = app_module.source_navigation_topic(
+            "Unde gasesc calendarul procesului de cazare?",
+            {"analysis": {"intent": "studenti"}},
+        )
+
+        self.assertEqual(topic, "cazare")
+
+    def test_housing_social_navigation_topic_mentions_social_criteria(self) -> None:
+        topic = app_module.source_navigation_topic(
+            "Unde verific criteriile sociale pentru cazare?",
+            {"analysis": {"intent": "studenti"}},
+        )
+
+        self.assertEqual(topic, "criteriile sociale pentru cazare")
+
+    def test_policy_source_navigation_question_can_use_local_answer(self) -> None:
+        retrieval_result = {
+            "analysis": {"intent": "regulamente", "is_policy_question": True},
+            "chunks": [{"url": "https://uvt.ro/regulament", "title": "Regulament", "chunk_text": "Text"}],
+            "confidence": "high",
+        }
+
+        self.assertTrue(app_module.should_use_source_navigation_answer(
+            "Ce document oficial explica procedurile pentru studenti?",
+            retrieval_result,
+        ))
+        self.assertTrue(app_module.should_use_source_navigation_answer(
+            "Unde gasesc metodologia de finalizare a studiilor?",
+            retrieval_result,
+        ))
+
+    def test_policy_navigation_topic_mentions_regulations(self) -> None:
+        topic = app_module.source_navigation_topic(
+            "Unde sunt publicate hotararile sau regulamentele UVT?",
+            {"analysis": {"intent": "regulamente"}},
+        )
+
+        self.assertIn("regulament", topic)
 
     def test_local_fallback_lists_sources_without_content_analysis(self) -> None:
         retrieval_result = {
@@ -212,24 +306,36 @@ class AppTests(unittest.TestCase):
             patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
             patch.object(app_module, "rank_index", return_value=retrieval_result),
             patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
-            patch.object(
-                app_module,
-                "ask_ollama_json",
-                return_value={"answer": "Orarul este publicat pe pagina oficiala Orare - https://info.uvt.ro/orare."},
-            ) as ask_ollama,
+            patch.object(app_module, "ask_ollama_json", side_effect=AssertionError("Navigation answer should be local")),
         ):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(payload["generation_mode"], "ollama")
+        self.assertEqual(payload["generation_mode"], "local_source_navigation")
         self.assertTrue(payload["evidence"]["answerable"])
         self.assertEqual(payload["evidence"]["top_source"]["url"], "https://info.uvt.ro/orare")
+        self.assertIn("orar", payload["answer"].lower())
         self.assertIn("https://info.uvt.ro/orare", payload["answer"])
-        ask_ollama.assert_called_once()
-        prompt = ask_ollama.call_args.args[1]
-        self.assertIn("Orare - Facultatea de Informatica", prompt)
-        self.assertIn("https://info.uvt.ro/orare", prompt)
+
+    def test_unsupported_future_or_personal_question_skips_retrieval(self) -> None:
+        with patch.object(app_module, "rank_index", side_effect=AssertionError("Unsupported question should not retrieve")):
+            for question in (
+                "Care va fi media minima de admitere de anul viitor?",
+                "Ce bursa voi primi personal luna viitoare?",
+            ):
+                with self.subTest(question=question):
+                    response = self.client.post(
+                        "/chat",
+                        json={"question": question, "faculty_id": "uvt"},
+                    )
+
+                    self.assertEqual(response.status_code, 200)
+                    payload = response.get_json()
+                    self.assertEqual(payload["confidence"], "low")
+                    self.assertEqual(payload["retrieval_backend"], "unsupported_guard")
+                    self.assertFalse(payload["evidence"]["answerable"])
+                    self.assertIn("Sursele oficiale disponibile nu sunt suficiente", payload["answer"])
 
     def test_bad_generation_is_repaired_with_ollama_before_fallback(self) -> None:
         retrieval_result = {
@@ -273,7 +379,10 @@ class AppTests(unittest.TestCase):
                 ],
             ) as ask_ollama,
         ):
-            response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
+            response = self.client.post(
+                "/chat",
+                json={"question": "Ce informatii sunt publicate pe pagina de orar?", "faculty_id": "info"},
+            )
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()

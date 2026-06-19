@@ -128,7 +128,30 @@ VAGUE_QUESTIONS = {
     "detalii",
     "informatii",
     "mai multe",
+    "am nevoie de ajutor administrativ ce sursa consult",
+    "am o problema cu facultatea unde ma uit",
+    "ce informatii sunt relevante pentru mine",
+    "ce trebuie sa fac ca student",
+    "ce trebuie sa stiu inainte de semestru",
+    "ma poti ajuta cu facultatea",
+    "spune-mi ceva util despre facultate",
+    "unde gasesc informatiile importante",
+    "unde gasesc tot ce imi trebuie",
 }
+
+UNSUPPORTED_QUESTION_PATTERNS = (
+    r"\bmedia minima\b.*\banul viitor\b",
+    r"\bsubiecte exacte\b.*\bmaine\b",
+    r"\bce burs[ae]\b.*\bvoi primi\b",
+    r"\bvoi primi\b.*\bburs[ae]\b",
+    r"\bnota mea\b",
+    r"\bprofesor va lipsi\b",
+    r"\bdecizie va lua comisia\b",
+    r"\bparola\b",
+    r"\bvoi primi loc\b.*\bcamin\b",
+    r"\btaxa exacta\b.*\bpeste doi ani\b",
+    r"\bgarant[ae]?\b.*\bbuget\b",
+)
 
 FACULTY_SCOPED_INTENTS = {"orar", "contact"}
 LIVE_VERIFY_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt"}
@@ -372,6 +395,11 @@ def is_vague_question(question: str) -> bool:
     if any(token_matches_specific_hint(token) for token in tokens):
         return False
     return len(tokens) <= 2
+
+
+def is_unsupported_question(question: str) -> bool:
+    normalized_question = normalize_match_text(question)
+    return any(re.search(pattern, normalized_question) for pattern in UNSUPPORTED_QUESTION_PATTERNS)
 
 
 def build_effective_question(question: str, history: list[dict]) -> str:
@@ -664,7 +692,20 @@ def build_response_payload(
 
 def needs_faculty_clarification(faculty: dict, retrieval_result: dict) -> bool:
     analysis = retrieval_result.get("analysis", {})
-    return faculty["id"] == GENERAL_FACULTY_ID and analysis.get("intent") in FACULTY_SCOPED_INTENTS
+    if faculty["id"] != GENERAL_FACULTY_ID or analysis.get("intent") not in FACULTY_SCOPED_INTENTS:
+        return False
+
+    normalized_question = normalize_retrieval_text(
+        analysis.get("corrected_question") or analysis.get("normalized_question") or analysis.get("original_question") or ""
+    )
+    if analysis.get("intent") == "contact" and (
+        "uvt" in normalized_question
+        or "universitate" in normalized_question
+        or "administrativ" in normalized_question
+    ):
+        return False
+
+    return True
 
 
 def faculty_clarification_payload(faculty: dict, retrieval_result: dict) -> dict:
@@ -702,6 +743,76 @@ def empty_question_payload() -> dict:
             "corrections": [],
         },
         "retrieval_backend": "none",
+        "generation_mode": "none",
+        "generation_error": "",
+        "evidence": {
+            "answerable": False,
+            "support_level": "low",
+            "source_count": 0,
+            "verified_source_count": 0,
+            "live_verified": False,
+            "top_source": None,
+        },
+    }
+
+
+def unsupported_question_payload(chat_request: ChatRequest) -> dict:
+    faculty = get_faculty(chat_request.requested_faculty_id)
+    return {
+        "answer": (
+            "Sursele oficiale disponibile nu sunt suficiente pentru un raspuns sigur la aceasta intrebare. "
+            "Nu pot confirma date personale, parole, note, decizii individuale sau predictii despre rezultate viitoare. "
+            "Verifica portalurile oficiale sau contacteaza secretariatul/comisia relevanta."
+        ),
+        "sources": [],
+        "matched_faculty": faculty["name"],
+        "matched_faculty_id": faculty["id"],
+        "confidence": "low",
+        "confidence_score": 10,
+        "confidence_reason": "Intrebarea cere date personale, garantii sau predictii care nu pot fi verificate din surse publice oficiale.",
+        "live_verified": False,
+        "query_profile": {
+            "intent": "unsupported",
+            "policy_question": False,
+            "normalized_question": normalize_retrieval_text(chat_request.question),
+            "corrections": [],
+        },
+        "retrieval_backend": "unsupported_guard",
+        "generation_mode": "none",
+        "generation_error": "",
+        "evidence": {
+            "answerable": False,
+            "support_level": "low",
+            "source_count": 0,
+            "verified_source_count": 0,
+            "live_verified": False,
+            "top_source": None,
+        },
+    }
+
+
+def vague_question_payload(chat_request: ChatRequest) -> dict:
+    faculty = get_faculty(chat_request.requested_faculty_id)
+    return {
+        "answer": (
+            "Intrebarea este prea generala pentru un raspuns sigur din surse oficiale. "
+            "Precizeaza tema, de exemplu orar, secretariat, admitere, burse, cazare, calendar academic "
+            "sau credite de voluntariat."
+        ),
+        "sources": [],
+        "matched_faculty": faculty["name"],
+        "matched_faculty_id": faculty["id"],
+        "confidence": "low",
+        "confidence_score": 25,
+        "confidence_reason": "Intrebarea nu contine suficiente indicii concrete pentru selectie sigura de surse.",
+        "live_verified": False,
+        "query_profile": {
+            "intent": "clarification",
+            "policy_question": False,
+            "normalized_question": normalize_retrieval_text(chat_request.question),
+            "corrections": [],
+        },
+        "retrieval_backend": "clarification",
         "generation_mode": "none",
         "generation_error": "",
         "evidence": {
@@ -764,6 +875,172 @@ def numeric_confidence_score(value) -> int:
 
 def should_skip_generation(retrieval_result: dict) -> bool:
     return not retrieval_result.get("chunks")
+
+
+SOURCE_NAVIGATION_PATTERNS = (
+    "unde gasesc",
+    "unde este",
+    "unde sunt",
+    "unde consult",
+    "unde verific",
+    "unde vad",
+    "unde pot",
+    "unde se publica",
+    "care este pagina",
+    "care este sursa",
+    "ce sursa oficiala",
+    "ce document oficial",
+    "la ce pagina",
+)
+
+
+def is_source_navigation_question(question: str, retrieval_result: dict) -> bool:
+    analysis = retrieval_result.get("analysis", {})
+    normalized_question = normalize_retrieval_text(question)
+    is_navigation = any(pattern in normalized_question for pattern in SOURCE_NAVIGATION_PATTERNS)
+    if not analysis.get("is_policy_question"):
+        return is_navigation
+    return is_navigation and any(
+        term in normalized_question
+        for term in ("sursa", "document oficial", "metodolog", "regulament", "procedura")
+    )
+
+
+def should_use_source_navigation_answer(question: str, retrieval_result: dict) -> bool:
+    chunks = retrieval_result.get("chunks") or []
+    if not chunks:
+        return False
+    if retrieval_result.get("confidence") == "low":
+        return False
+    return is_source_navigation_question(question, retrieval_result)
+
+
+def source_navigation_topic(question: str, retrieval_result: dict) -> str:
+    normalized_question = normalize_retrieval_text(question)
+    analysis = retrieval_result.get("analysis", {})
+    if "secretariat" in normalized_question:
+        return "secretariat/contact"
+    if "contact" in normalized_question:
+        return "contact"
+    if ("cazare" in normalized_question or "camin" in normalized_question) and "social" in normalized_question:
+        return "criteriile sociale pentru cazare"
+    if "cazare" in normalized_question or "camin" in normalized_question:
+        return "cazare"
+    if any(
+        term in normalized_question
+        for term in ("calendar", "structura anului", "semestru", "sesiune", "vacanta", "vacante", "saptamani")
+    ):
+        return "calendarul academic"
+    if "admitere" in normalized_question:
+        return "admitere"
+    if "burse" in normalized_question or "bursa" in normalized_question:
+        return "burse"
+    if "metodolog" in normalized_question:
+        return "metodologia oficiala"
+    if "document oficial" in normalized_question:
+        return "documentul oficial"
+    if "hotarar" in normalized_question and "regulament" in normalized_question:
+        return "regulamentele si hotararile oficiale"
+    if "regulament" in normalized_question or "procedura" in normalized_question:
+        return "regulamentul sau procedura oficiala"
+    if "voluntariat" in normalized_question or "credite" in normalized_question:
+        return "credite de voluntariat"
+    if analysis.get("intent") == "orar" or "orar" in normalized_question:
+        return "orar"
+    return "informatiile cerute"
+
+
+def is_central_uvt_contact_request(question: str, faculty: dict, retrieval_result: dict) -> bool:
+    if faculty["id"] != GENERAL_FACULTY_ID:
+        return False
+    analysis = retrieval_result.get("analysis", {})
+    if analysis.get("intent") != "contact":
+        return False
+    normalized_question = normalize_retrieval_text(question)
+    return (
+        "uvt" in normalized_question
+        or "universitate" in normalized_question
+        or "administrativ" in normalized_question
+    )
+
+
+def find_canonical_uvt_contact_chunk() -> dict | None:
+    for chunk in load_index().get("chunks", []):
+        if str(chunk.get("url") or "").rstrip("/") == "https://uvt.ro/contact":
+            return copy.deepcopy(chunk)
+    return None
+
+
+def ensure_canonical_uvt_contact_source(question: str, faculty: dict, retrieval_result: dict) -> dict:
+    if not is_central_uvt_contact_request(question, faculty, retrieval_result):
+        return retrieval_result
+
+    chunks = list(retrieval_result.get("chunks") or [])
+    if any(str(chunk.get("url") or "").rstrip("/") == "https://uvt.ro/contact" for chunk in chunks):
+        return retrieval_result
+
+    canonical_chunk = find_canonical_uvt_contact_chunk()
+    if not canonical_chunk:
+        return retrieval_result
+
+    canonical_chunk["retrieval_score"] = max(float(canonical_chunk.get("retrieval_score", 0) or 0), 180.0)
+    canonical_chunk["match_signals"] = list(dict.fromkeys([
+        *canonical_chunk.get("match_signals", []),
+        "canonical_contact",
+        "contact_exact_path",
+    ]))
+    canonical_chunk["page_type"] = canonical_chunk.get("page_type") or "contact"
+
+    filtered_chunks = [
+        chunk for chunk in chunks
+        if str(chunk.get("url") or "").rstrip("/") != "https://uvt.ro/contact"
+    ]
+    updated_result = {
+        **retrieval_result,
+        "chunks": [canonical_chunk, *filtered_chunks],
+        "confidence_reason": append_confidence_reason(
+            retrieval_result.get("confidence_reason"),
+            "A fost prioritizata pagina oficiala centrala de contact UVT.",
+        ),
+    }
+    confidence = compute_confidence(updated_result["chunks"], updated_result.get("analysis", {}))
+    updated_result["confidence"] = confidence["label"]
+    updated_result["confidence_score"] = confidence["score"]
+    updated_result["confidence_reason"] = append_confidence_reason(
+        updated_result.get("confidence_reason"),
+        confidence["reason"],
+    )
+    return updated_result
+
+
+def build_source_navigation_answer(question: str, retrieval_result: dict) -> str:
+    sources = unique_sources_from_chunks(retrieval_result.get("chunks", []))
+    if not sources:
+        return build_local_fallback_answer(
+            retrieval_result,
+            reason="Nu exista o sursa oficiala suficient de clara pentru un raspuns direct.",
+        )
+
+    top = sources[0]
+    title = compact_text(top.get("title") or "Sursa oficiala", 180)
+    url = compact_text(top.get("url"), 500)
+    topic = source_navigation_topic(question, retrieval_result)
+    if len(sources) == 1:
+        return f"Pentru {topic}, consulta sursa oficiala \"{title}\" - {url}."
+
+    extra_sources = []
+    for source in sources[1:3]:
+        source_title = compact_text(source.get("title") or "Sursa oficiala", 120)
+        source_url = compact_text(source.get("url"), 500)
+        if source_url:
+            extra_sources.append(f"\"{source_title}\" - {source_url}")
+
+    if extra_sources:
+        return (
+            f"Pentru {topic}, consulta mai intai sursa oficiala \"{title}\" - {url}. "
+            f"Surse oficiale suplimentare: {'; '.join(extra_sources)}."
+        )
+    return f"Pentru {topic}, consulta sursa oficiala \"{title}\" - {url}."
 
 
 def vector_runtime_ready(vector_status: dict) -> bool:
@@ -834,8 +1111,12 @@ def chat():
     chat_request = parse_chat_request(request.get_json(silent=True) or {})
     if not chat_request.question:
         return jsonify(empty_question_payload())
+    if is_unsupported_question(chat_request.question):
+        return jsonify(unsupported_question_payload(chat_request))
     if indexing_blocks_chat():
         return jsonify(indexing_in_progress_payload(chat_request)), 503
+    if is_vague_question(chat_request.question) and not chat_request.history:
+        return jsonify(vague_question_payload(chat_request))
 
     faculty = infer_faculty(chat_request.requested_faculty_id, chat_request.question, chat_request.history)
     effective_question = build_effective_question(chat_request.question, chat_request.history)
@@ -860,6 +1141,8 @@ def chat():
         set_cached_response(cache_key, response_payload)
         return jsonify(response_payload)
 
+    retrieval_result = ensure_canonical_uvt_contact_source(chat_request.question, faculty, retrieval_result)
+
     live_verified = False
 
     if retrieval_result.get("chunks"):
@@ -871,7 +1154,10 @@ def chat():
         )
         refresh_confidence(retrieval_result, merged_chunks)
 
-    if should_skip_generation(retrieval_result):
+    if should_use_source_navigation_answer(chat_request.question, retrieval_result):
+        generation = {"mode": "local_source_navigation"}
+        answer = build_source_navigation_answer(chat_request.question, retrieval_result)
+    elif should_skip_generation(retrieval_result):
         generation = {"mode": "fallback_low_evidence"}
         answer = build_local_fallback_answer(
             retrieval_result,
