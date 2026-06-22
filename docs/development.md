@@ -111,7 +111,41 @@ Endpointurile publice sunt:
 - `POST /chat`
 - `POST /feedback`
 
-## 6. Incarcare extensie Chrome
+## 6. Logging structurat pentru chat
+
+Fiecare request `POST /chat` primeste intern un `request_id` si este logat local in format JSONL:
+
+```text
+backend/logs/chat_requests.jsonl
+```
+
+Folderul `backend/logs/` este ignorat de Git. Logul este util pentru analiza tehnica a executiei unei intrebari in lucrarea de licenta, fara sa salveze intrebarea completa. Pentru confidentialitate, se salveaza doar `question_length`.
+
+Fiecare linie contine metadate precum:
+
+- `timestamp`
+- `request_id`
+- `question_length`
+- `faculty_id`
+- `matched_faculty_id`
+- `detected_intent`
+- `retrieval_backend`
+- `generation_mode`
+- `confidence`
+- `confidence_score`
+- `source_count`
+- `verified_source_count`
+- `live_verified`
+- `total_latency_ms`
+- `generation_error`, cand exista
+
+Exemplu de inspectare rapida:
+
+```powershell
+Get-Content backend\logs\chat_requests.jsonl -Tail 5
+```
+
+## 7. Incarcare extensie Chrome
 
 1. Deschide `chrome://extensions`.
 2. Activeaza Developer mode.
@@ -130,7 +164,7 @@ Unde gasesc informatii despre admitere?
 Unde gasesc orrarul la info?
 ```
 
-## 7. Testare automata
+## 8. Testare automata
 
 Ruleaza compilarea Python:
 
@@ -152,7 +186,7 @@ python backend\scripts\smoke_retrieval.py
 
 Smoke retrieval este asteptat sa esueze daca Ollama sau Qdrant nu ruleaza, deoarece nu se pot crea embeddings si cautarea vectoriala nu poate fi validata.
 
-## 8. Evaluare RAG
+## 9. Evaluare RAG
 
 Cand stackul local este pornit complet:
 
