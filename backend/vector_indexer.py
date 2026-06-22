@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 from typing import Callable
 
+from core.config import env_int
 from ollama_client import embed_texts, get_ollama_settings
 from vector_store import get_vector_settings, index_chunks
 
@@ -34,7 +34,7 @@ def embed_chunks(
     batch_size: int | None = None,
     progress: Callable[[int, int], None] | None = None,
 ) -> list[list[float]]:
-    batch_size = batch_size or int(os.getenv("OLLAMA_EMBED_BATCH_SIZE", str(DEFAULT_EMBED_BATCH_SIZE)))
+    batch_size = batch_size or env_int("OLLAMA_EMBED_BATCH_SIZE", str(DEFAULT_EMBED_BATCH_SIZE))
     vectors: list[list[float]] = []
 
     for batch in _batched(chunks, max(1, batch_size)):

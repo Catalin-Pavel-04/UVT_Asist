@@ -2,29 +2,30 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+from core.config import env_int
+
 INDEX_PATH = Path(__file__).with_name("data") / "page_index.json"
 INDEX_META_PATH = INDEX_PATH.with_name("page_index.meta.json")
 INDEX_SCHEMA_VERSION = 2
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 180
-MAX_PAGE_TEXT_CHARS = max(4000, int(os.getenv("INDEX_MAX_PAGE_TEXT_CHARS", "24000")))
-MAX_CHUNKS_PER_PAGE = max(1, int(os.getenv("INDEX_MAX_CHUNKS_PER_PAGE", "32")))
+MAX_PAGE_TEXT_CHARS = env_int("INDEX_MAX_PAGE_TEXT_CHARS", "24000", minimum=4000)
+MAX_CHUNKS_PER_PAGE = env_int("INDEX_MAX_CHUNKS_PER_PAGE", "32", minimum=1)
 DOCUMENT_MAX_PAGE_TEXT_CHARS = max(
     MAX_PAGE_TEXT_CHARS,
-    int(os.getenv("INDEX_DOCUMENT_MAX_PAGE_TEXT_CHARS", "120000")),
+    env_int("INDEX_DOCUMENT_MAX_PAGE_TEXT_CHARS", "120000"),
 )
 DOCUMENT_MAX_CHUNKS_PER_PAGE = max(
     MAX_CHUNKS_PER_PAGE,
-    int(os.getenv("INDEX_DOCUMENT_MAX_CHUNKS_PER_PAGE", "140")),
+    env_int("INDEX_DOCUMENT_MAX_CHUNKS_PER_PAGE", "140"),
 )
-MAX_CHUNK_WORD_CHARS = max(200, int(os.getenv("INDEX_MAX_CHUNK_WORD_CHARS", "1000")))
+MAX_CHUNK_WORD_CHARS = env_int("INDEX_MAX_CHUNK_WORD_CHARS", "1000", minimum=200)
 DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 _INDEX_CACHE: dict | None = None

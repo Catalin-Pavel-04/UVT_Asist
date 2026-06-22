@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import threading
 import time
@@ -11,6 +10,7 @@ from urllib.parse import unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from core.config import env_int
 from ocr_client import (
     is_paddle_ocr_enabled,
     is_supported_ocr_image_extension,
@@ -34,29 +34,21 @@ logging.getLogger("pypdf").setLevel(logging.ERROR)
 HEADERS = {"User-Agent": "UVT_Asist/1.0"}
 
 
-def env_int(name: str, default: str, minimum: int) -> int:
-    try:
-        value = int(os.getenv(name, default))
-    except (TypeError, ValueError):
-        value = int(default)
-    return max(minimum, value)
-
-
-MAX_TEXT_LENGTH = env_int("LIVE_FETCH_MAX_TEXT_LENGTH", "16000", 4000)
-MAX_PDF_PAGES = env_int("LIVE_FETCH_MAX_PDF_PAGES", "12", 1)
+MAX_TEXT_LENGTH = env_int("LIVE_FETCH_MAX_TEXT_LENGTH", "16000", minimum=4000, strict=False)
+MAX_PDF_PAGES = env_int("LIVE_FETCH_MAX_PDF_PAGES", "12", minimum=1, strict=False)
 INDEX_HTML_MAX_TEXT_LENGTH = max(
     MAX_TEXT_LENGTH,
-    env_int("INDEX_HTML_FETCH_TEXT_CHARS", "24000", MAX_TEXT_LENGTH),
+    env_int("INDEX_HTML_FETCH_TEXT_CHARS", "24000", minimum=MAX_TEXT_LENGTH, strict=False),
 )
 INDEX_DOCUMENT_MAX_TEXT_LENGTH = max(
     MAX_TEXT_LENGTH,
-    env_int("INDEX_DOCUMENT_FETCH_TEXT_CHARS", "120000", MAX_TEXT_LENGTH),
+    env_int("INDEX_DOCUMENT_FETCH_TEXT_CHARS", "120000", minimum=MAX_TEXT_LENGTH, strict=False),
 )
 INDEX_DOCUMENT_MAX_PDF_PAGES = max(
     MAX_PDF_PAGES,
-    env_int("INDEX_DOCUMENT_FETCH_PDF_PAGES", "80", MAX_PDF_PAGES),
+    env_int("INDEX_DOCUMENT_FETCH_PDF_PAGES", "80", minimum=MAX_PDF_PAGES, strict=False),
 )
-CACHE_TTL = max(60, int(os.getenv("LIVE_FETCH_CACHE_TTL", "300")))
+CACHE_TTL = env_int("LIVE_FETCH_CACHE_TTL", "300", minimum=60)
 
 BAD_EXTENSIONS = (".gif", ".svg", ".zip", ".rar", ".doc", ".xls", ".xlsx", ".ppt", ".pptx")
 NON_HTML_LINK_PREFIXES = ("#", "mailto:", "tel:", "javascript:")

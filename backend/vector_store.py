@@ -1,22 +1,25 @@
 from __future__ import annotations
 
 import hashlib
-import os
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from dotenv import load_dotenv
+from core.config import (
+    BACKEND_DIR,
+    ENV_FILE,
+    REPO_ROOT,
+    VectorStoreSettings,
+    env_int,
+    get_vector_settings as load_vector_settings,
+)
+from core.logging import get_logger
 
-ENV_FILE = Path(__file__).with_name(".env")
-BACKEND_DIR = Path(__file__).resolve().parent
-REPO_ROOT = BACKEND_DIR.parent
+LOGGER = get_logger(__name__)
+
 DEFAULT_QDRANT_URL = "http://127.0.0.1:6333"
 DEFAULT_COLLECTION_NAME = "uvt_asist_chunks"
 DEFAULT_UPSERT_BATCH_SIZE = 64
 PAYLOAD_INDEX_FIELDS = ("faculty_id", "page_type", "url", "last_indexed")
-
-load_dotenv(ENV_FILE)
 
 try:
     from qdrant_client import QdrantClient, models
@@ -25,29 +28,8 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when setup is incomp
     models = None
 
 
-@dataclass(frozen=True)
-class VectorStoreSettings:
-    url: str
-    path: str
-    collection_name: str
-    timeout: int
-
-
 def get_vector_settings() -> VectorStoreSettings:
-    configured_path = os.getenv("QDRANT_PATH", "").strip()
-    if configured_path:
-        qdrant_path = Path(configured_path).expanduser()
-        if not qdrant_path.is_absolute():
-            qdrant_path = REPO_ROOT / qdrant_path
-        configured_path = str(qdrant_path)
-
-    return VectorStoreSettings(
-        url=os.getenv("QDRANT_URL", DEFAULT_QDRANT_URL).strip() or DEFAULT_QDRANT_URL,
-        path=configured_path,
-        collection_name=os.getenv("QDRANT_COLLECTION", DEFAULT_COLLECTION_NAME).strip()
-        or DEFAULT_COLLECTION_NAME,
-        timeout=int(os.getenv("QDRANT_TIMEOUT_SECONDS", "30")),
-    )
+    return load_vector_settings()
 
 
 def _require_qdrant_client() -> None:
@@ -98,8 +80,13 @@ def create_payload_indexes(client: QdrantClient | None = None) -> None:
                 field_name=field_name,
                 field_schema=models.PayloadSchemaType.KEYWORD,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            LOGGER.warning(
+                "Could not create Qdrant payload index '%s' for collection '%s': %s",
+                field_name,
+                settings.collection_name,
+                exc,
+            )
 
 
 def initialize_collection(vector_size: int, recreate: bool = False) -> None:
@@ -144,7 +131,7 @@ def upsert_chunks(chunks: list[dict], vectors: list[list[float]], batch_size: in
 
     client = get_client()
     settings = get_vector_settings()
-    batch_size = batch_size or int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", str(DEFAULT_UPSERT_BATCH_SIZE)))
+    batch_size = batch_size or env_int("QDRANT_UPSERT_BATCH_SIZE", str(DEFAULT_UPSERT_BATCH_SIZE))
     points = []
 
     for chunk, vector in zip(chunks, vectors):

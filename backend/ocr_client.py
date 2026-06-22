@@ -10,7 +10,10 @@ import threading
 from io import BytesIO
 from pathlib import Path
 
-from dotenv import load_dotenv
+from core.config import env_bool, env_int, env_str
+from core.logging import get_logger
+
+LOGGER = get_logger(__name__)
 
 try:
     from pypdf import PdfReader, PdfWriter
@@ -18,7 +21,6 @@ except ModuleNotFoundError:
     PdfReader = None
     PdfWriter = None
 
-ENV_FILE = Path(__file__).with_name(".env")
 OCR_SCRIPT = Path(__file__).parent / "scripts" / "paddle_ocr_extract.py"
 DEFAULT_OCR_VENV_PYTHON = Path(__file__).with_name(".ocr-venv") / "Scripts" / "python.exe"
 OCR_CACHE = {}
@@ -29,26 +31,13 @@ DEFAULT_OCR_MIN_TEXT_CHARS = 120
 DEFAULT_OCR_MAX_PAGES = 6
 OCR_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
-load_dotenv(ENV_FILE)
-
 
 def _get_bool_env(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return env_bool(name, default)
 
 
 def _get_int_env(name: str, default: int) -> int:
-    value = os.getenv(name, "").strip()
-    if not value:
-        return default
-
-    try:
-        return int(value)
-    except ValueError:
-        return default
+    return env_int(name, default, strict=False)
 
 
 def is_paddle_ocr_enabled() -> bool:
@@ -56,7 +45,7 @@ def is_paddle_ocr_enabled() -> bool:
 
 
 def get_paddle_ocr_python() -> str:
-    configured = os.getenv("PADDLE_OCR_PYTHON", "").strip()
+    configured = env_str("PADDLE_OCR_PYTHON", "")
     if configured:
         return configured
 
@@ -67,7 +56,7 @@ def get_paddle_ocr_python() -> str:
 
 
 def get_paddle_ocr_lang() -> str:
-    return os.getenv("PADDLE_OCR_LANG", DEFAULT_OCR_LANG).strip() or DEFAULT_OCR_LANG
+    return env_str("PADDLE_OCR_LANG", DEFAULT_OCR_LANG)
 
 
 def get_paddle_ocr_timeout() -> int:
@@ -170,8 +159,8 @@ def _run_paddle_ocr(content: bytes, suffix: str, prepared_content: bytes | None 
     finally:
         try:
             temp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            LOGGER.warning("Could not remove OCR temporary file %s: %s", temp_path, exc)
 
 
 def run_paddle_ocr_on_pdf(content: bytes) -> str:

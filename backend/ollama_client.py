@@ -1,42 +1,26 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-from dataclasses import dataclass
-from pathlib import Path
 
 import requests
-from dotenv import load_dotenv
 
-ENV_FILE = Path(__file__).with_name(".env")
-load_dotenv(ENV_FILE)
+from core.config import OllamaSettings, env_float, env_int, get_ollama_settings as load_ollama_settings
+from core.logging import get_logger
+
+LOGGER = get_logger(__name__)
 
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_GENERATION_MODEL = "qwen3:4b"
 DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
-REQUEST_TIMEOUT_SECONDS = max(15, int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "120")))
-EMBED_TIMEOUT_SECONDS = max(15, int(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "120")))
-MAX_EMBED_TEXT_CHARS = max(1000, int(os.getenv("OLLAMA_MAX_EMBED_TEXT_CHARS", "6000")))
-QUERY_ANALYSIS_TIMEOUT_SECONDS = max(1, int(os.getenv("OLLAMA_QUERY_ANALYSIS_TIMEOUT_SECONDS", "8")))
-
-
-@dataclass(frozen=True)
-class OllamaSettings:
-    base_url: str
-    generation_model: str
-    embedding_model: str
+REQUEST_TIMEOUT_SECONDS = env_int("OLLAMA_REQUEST_TIMEOUT_SECONDS", "120", minimum=15)
+EMBED_TIMEOUT_SECONDS = env_int("OLLAMA_EMBED_TIMEOUT_SECONDS", "120", minimum=15)
+MAX_EMBED_TEXT_CHARS = env_int("OLLAMA_MAX_EMBED_TEXT_CHARS", "6000", minimum=1000)
+QUERY_ANALYSIS_TIMEOUT_SECONDS = env_int("OLLAMA_QUERY_ANALYSIS_TIMEOUT_SECONDS", "8", minimum=1)
 
 
 def get_ollama_settings() -> OllamaSettings:
-    return OllamaSettings(
-        base_url=os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL).strip().rstrip("/")
-        or DEFAULT_OLLAMA_BASE_URL,
-        generation_model=os.getenv("OLLAMA_GENERATION_MODEL", DEFAULT_GENERATION_MODEL).strip()
-        or DEFAULT_GENERATION_MODEL,
-        embedding_model=os.getenv("OLLAMA_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
-        or DEFAULT_EMBEDDING_MODEL,
-    )
+    return load_ollama_settings()
 
 
 def _ollama_url(path: str) -> str:
@@ -60,9 +44,9 @@ def ask_ollama(system_prompt: str, user_prompt: str) -> str:
             {"role": "user", "content": f"/no_think\n\n{user_prompt.strip()}"},
         ],
         "options": {
-            "temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.15")),
-            "top_p": float(os.getenv("OLLAMA_TOP_P", "0.9")),
-            "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "700")),
+            "temperature": env_float("OLLAMA_TEMPERATURE", "0.15"),
+            "top_p": env_float("OLLAMA_TOP_P", "0.9"),
+            "num_predict": env_int("OLLAMA_NUM_PREDICT", "700"),
         },
     }
 
@@ -197,8 +181,8 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
             return vectors
         if len(cleaned_texts) == 1 and len(vectors) == 1:
             return vectors
-    except Exception:
-        pass
+    except Exception as exc:
+        LOGGER.warning("Batch Ollama embedding request failed; falling back to per-text embeddings: %s", exc)
 
     vectors: list[list[float]] = []
     for text in cleaned_texts:

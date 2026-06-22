@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from core.config import env_int
 from live_fetch import fetch_page
 
-VERIFICATION_CACHE_TTL = max(60, int(os.getenv("VERIFICATION_CACHE_TTL", "1800")))
-VERIFICATION_FETCH_WORKERS = max(1, int(os.getenv("VERIFICATION_FETCH_WORKERS", "3")))
+VERIFICATION_CACHE_TTL = env_int("VERIFICATION_CACHE_TTL", "1800", minimum=60)
+VERIFICATION_FETCH_WORKERS = env_int("VERIFICATION_FETCH_WORKERS", "3", minimum=1)
 
 STATE_LOCK = threading.Lock()
 VERIFICATION_CACHE: dict[str, dict] = {}

@@ -201,6 +201,14 @@ The script checks Python imports, `backend/.env`, Ollama availability, configure
 
 Use [docs/demo_checklist.md](docs/demo_checklist.md) before the thesis presentation. It lists the local services to start, the questions to demonstrate, and the UI evidence to show to the committee.
 
+## Documentatie tehnica
+
+- [Arhitectura tehnica](docs/architecture.md): descrie extensia Chrome, backendul Flask, crawlerul, chunking-ul, embeddings locale, Qdrant, retrieval, reranking, live verification, generarea cu Ollama si confidence score.
+- [Ghid de dezvoltare locala](docs/development.md): setup Windows PowerShell, Ollama, Qdrant, build index, backend Flask si incarcarea extensiei Chrome.
+- [Metodologie evaluare RAG](docs/evaluation/methodology.md): explica setul de 100 de intrebari, metricile si legatura cu raportul comparativ.
+- [Cazuri de esec si refuz controlat](docs/evaluation/failure_cases.md): exemple de intrebari vagi, personale sau predictive unde sistemul trebuie sa ceara clarificari ori sa refuze un raspuns sigur.
+- [Note despre latenta](docs/evaluation/latency_notes.md): surse de latenta, interpretarea medie/mediana si practici pentru reducerea timpului de raspuns.
+
 ## Build Or Rebuild The Index
 
 Full crawl plus JSON and Qdrant vector index:
@@ -446,9 +454,11 @@ Manual popup checklist:
 - The application is designed for local execution, not direct public exposure.
 - The popup is the only user-facing interface; there is no separate web frontend.
 
-## Securitate locală
+## Securitate locala
 
-- The Flask backend is intended to run on `localhost` for a local Chrome extension demo.
-- Do not expose the backend publicly without restrictive CORS, authentication, rate limiting, request-size limits, logging review, and general deployment hardening.
-- `backend/feedback_log.jsonl` can contain user questions and feedback; do not publish it.
-- `.env`, generated indexes, evaluation outputs, local Qdrant storage, and runtime logs are ignored by Git.
+- Aplicatia este proiectata pentru rulare locala: extensia Chrome comunica cu backendul Flask de pe `http://127.0.0.1:5000`.
+- Ollama si Qdrant ruleaza local; intrebarile nu sunt trimise catre servicii externe AI.
+- Feedbackul din popup este salvat local in `backend/feedback_log.jsonl`.
+- Utilizatorul nu ar trebui sa introduca date personale sensibile in intrebari sau feedback.
+- Nu expune backendul public fara CORS restrictiv, autentificare, rate limiting, limite de dimensiune pentru cereri, audit de logging si hardening general de deployment.
+- `.env`, indexurile generate, evaluarile locale, stocarea Qdrant locala si logurile runtime sunt ignorate de Git.
