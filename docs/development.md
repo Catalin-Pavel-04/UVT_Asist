@@ -2,6 +2,59 @@
 
 Acest document descrie setup-ul local pentru dezvoltare si demo pe Windows PowerShell. Comenzile se ruleaza din radacina repository-ului.
 
+## Comenzi rapide
+
+Repository-ul include wrapper-e PowerShell in `scripts/`, fara sa inlocuiasca scripturile Python existente. Comenzile principale raman functionale:
+
+```powershell
+python backend\app.py
+python backend\build_index.py
+```
+
+Pentru Windows, fluxul recomandat este:
+
+```powershell
+.\scripts\setup.ps1
+.\scripts\start_qdrant.ps1
+.\scripts\build_index.ps1
+.\scripts\run_backend.ps1
+```
+
+In alt terminal ruleaza manual Ollama:
+
+```powershell
+ollama serve
+```
+
+Wrapper-ele disponibile:
+
+```powershell
+.\scripts\setup.ps1                 # venv, requirements, requirements-dev, .env daca lipseste
+.\scripts\start_qdrant.ps1          # docker compose up -d qdrant
+.\scripts\build_index.ps1           # crawler + JSON + Qdrant vectors
+.\scripts\build_index.ps1 -VectorOnly
+.\scripts\run_backend.ps1           # porneste Flask
+.\scripts\smoke.ps1                 # smoke retrieval
+.\scripts\smoke.ps1 -DemoCheck      # smoke retrieval + demo_check
+.\scripts\test.ps1                  # compileall + pytest
+.\scripts\test.ps1 -Coverage
+.\scripts\test.ps1 -EvaluateRag     # ruleaza si evaluarea RAG, daca scriptul exista
+```
+
+Exista si un `Makefile` pentru medii unde `make` este disponibil:
+
+```powershell
+make setup
+make qdrant
+make build-index
+make build-vector-index
+make backend
+make smoke
+make test
+make eval
+make demo-check
+```
+
 ## 1. Pregatire mediu Python
 
 ```powershell
@@ -69,6 +122,13 @@ Build rapid numai pentru vectori, pornind de la `backend/data/page_index.json` e
 python backend\scripts\build_vector_index.py
 ```
 
+Echivalent prin wrapper:
+
+```powershell
+.\scripts\build_index.ps1
+.\scripts\build_index.ps1 -VectorOnly
+```
+
 Comenzi utile pentru dezvoltare:
 
 ```powershell
@@ -89,6 +149,12 @@ Porneste backendul:
 
 ```powershell
 python backend\app.py
+```
+
+Echivalent prin wrapper:
+
+```powershell
+.\scripts\run_backend.ps1
 ```
 
 Verifica health:
@@ -178,10 +244,22 @@ Ruleaza toate testele:
 python -m pytest
 ```
 
+Echivalent prin wrapper:
+
+```powershell
+.\scripts\test.ps1
+```
+
 Ruleaza smoke retrieval cand Ollama si Qdrant sunt disponibile:
 
 ```powershell
 python backend\scripts\smoke_retrieval.py
+```
+
+Echivalent prin wrapper:
+
+```powershell
+.\scripts\smoke.ps1
 ```
 
 Smoke retrieval este asteptat sa esueze daca Ollama sau Qdrant nu ruleaza, deoarece nu se pot crea embeddings si cautarea vectoriala nu poate fi validata.
@@ -192,6 +270,12 @@ Cand stackul local este pornit complet:
 
 ```powershell
 python backend\scripts\evaluate_rag.py
+```
+
+Echivalent prin wrapper:
+
+```powershell
+.\scripts\test.ps1 -EvaluateRag
 ```
 
 Rapoartele generate local sunt scrise in `backend/data/evaluation/`. Datasetul versionat de intrebari este `backend/evaluation/eval_questions.json` si nu trebuie modificat pentru a imbunatati artificial rezultatele.

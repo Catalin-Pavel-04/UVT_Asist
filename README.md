@@ -136,6 +136,33 @@ Keep the pinned Qdrant version from `docker-compose.yml` for demos. If you chang
 
 Run all commands from the repository root. The app needs three local services running at the same time: Ollama, Qdrant, and the Flask backend. The Chrome extension is then loaded from the `extension/` folder.
 
+Windows wrapper commands are available in `scripts/`:
+
+```powershell
+.\scripts\setup.ps1
+.\scripts\start_qdrant.ps1
+.\scripts\build_index.ps1
+.\scripts\build_index.ps1 -VectorOnly
+.\scripts\run_backend.ps1
+.\scripts\smoke.ps1
+.\scripts\test.ps1
+.\scripts\test.ps1 -EvaluateRag
+```
+
+If `make` is available, the equivalent targets are:
+
+```powershell
+make setup
+make qdrant
+make build-index
+make build-vector-index
+make backend
+make smoke
+make test
+make eval
+make demo-check
+```
+
 First run after setup:
 
 1. Start Ollama in a terminal:
