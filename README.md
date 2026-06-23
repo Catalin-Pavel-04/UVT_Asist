@@ -432,7 +432,8 @@ Expected behavior:
 Run fast automated tests after backend, retriever, index-schema, or API contract changes:
 
 ```powershell
-python -m unittest discover -s backend\tests
+python -m pytest
+.\scripts\test.ps1
 ```
 
 Run retrieval smoke tests after index, retriever, embedding, or Qdrant changes:
