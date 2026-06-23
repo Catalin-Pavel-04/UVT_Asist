@@ -85,6 +85,7 @@ async function checkIndexingStatus() {
       await checkBackend();
     }
   } catch {
+    const backendUrl = await UVTApi.getBackendUrl();
     stopIndexingPoll();
     setIndexingBusy(false);
     UVTRender.setBackendOnline(refs, false);
@@ -92,7 +93,7 @@ async function checkIndexingStatus() {
       refs,
       "error",
       "Backend indisponibil",
-      "Nu pot citi progresul indexării de la 127.0.0.1:5000."
+      `Nu pot citi progresul indexării de la ${backendUrl}.`
     );
   }
 }
@@ -131,6 +132,7 @@ async function checkBackend() {
     refs.emptyText.textContent = "Exemple: orar, secretariat, admitere, burse, reguli despre cumularea burselor.";
     return true;
   } catch {
+    const backendUrl = await UVTApi.getBackendUrl();
     stopIndexingPoll();
     setIndexingBusy(false);
     UVTRender.setBackendOnline(refs, false);
@@ -138,7 +140,7 @@ async function checkBackend() {
       refs,
       "error",
       "Backend indisponibil",
-      "Pornește backend-ul Flask pe 127.0.0.1:5000 și reîncarcă popup-ul."
+      `Pornește backend-ul Flask pe ${backendUrl} și reîncarcă popup-ul.`
     );
     refs.emptyText.textContent = "Backend-ul nu răspunde. Extensia rămâne deschisă, dar nu poate genera răspunsuri.";
     return false;
@@ -331,11 +333,12 @@ async function sendMessage(prefilledQuestion = null) {
       return;
     }
     UVTRender.setBackendOnline(refs, false);
+    const backendUrl = await UVTApi.getBackendUrl();
     UVTRender.setStatus(
       refs,
       "error",
       "Nu m-am putut conecta",
-      error.message || "Verifică dacă backend-ul Flask rulează pe 127.0.0.1:5000."
+      error.message || `Verifică dacă backend-ul Flask rulează pe ${backendUrl}.`
     );
     UVTRender.addBotMessage(
       refs,

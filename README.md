@@ -302,6 +302,8 @@ The page is a development-only test harness for `/health`, `/faculties`, `/chat`
 4. Select the `extension/` folder.
 5. Keep Ollama, Qdrant, and Flask running while using the popup.
 
+The popup backend URL can be configured from the extension options page; it remains restricted to local values such as `http://127.0.0.1:5000` or `http://localhost:5000`.
+
 ## How RAG Works
 
 1. Normalize Romanian text and common student typos.

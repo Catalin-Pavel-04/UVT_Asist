@@ -2,6 +2,12 @@
 
 (function exposeStorage(global) {
   const RECENT_QUESTIONS_KEY = "recentQuestions";
+  const BACKEND_URL_KEY = "backendUrl";
+  const DEFAULT_BACKEND_URL = "http://127.0.0.1:5000";
+  const ALLOWED_BACKEND_ORIGINS = new Set([
+    "http://127.0.0.1:5000",
+    "http://localhost:5000"
+  ]);
   const MAX_RECENT_QUESTIONS = 5;
 
   function storageGet(keys) {
@@ -61,10 +67,68 @@
     return storageSet({ theme });
   }
 
+  function normalizeBackendUrl(value) {
+    const raw = String(value || "").trim().replace(/\/+$/, "");
+    if (!raw) {
+      throw new Error("Completeaza URL-ul backendului local.");
+    }
+
+    let parsed;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new Error("URL-ul backendului nu este valid.");
+    }
+
+    if (!raw.startsWith("http://127.0.0.1") && !raw.startsWith("http://localhost")) {
+      throw new Error("Sunt permise doar URL-uri locale: http://127.0.0.1:5000 sau http://localhost:5000.");
+    }
+
+    if (!ALLOWED_BACKEND_ORIGINS.has(parsed.origin)) {
+      throw new Error("URL-ul trebuie sa fie http://127.0.0.1:5000 sau http://localhost:5000.");
+    }
+
+    if (parsed.pathname !== "/" && parsed.pathname !== "") {
+      throw new Error("Introdu doar origin-ul backendului, fara cale suplimentara.");
+    }
+
+    return parsed.origin;
+  }
+
+  function isAllowedBackendUrl(value) {
+    try {
+      normalizeBackendUrl(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function loadBackendUrl() {
+    const stored = await storageGet([BACKEND_URL_KEY]);
+    try {
+      return normalizeBackendUrl(stored[BACKEND_URL_KEY] || DEFAULT_BACKEND_URL);
+    } catch {
+      return DEFAULT_BACKEND_URL;
+    }
+  }
+
+  async function saveBackendUrl(value) {
+    const backendUrl = normalizeBackendUrl(value);
+    await storageSet({ [BACKEND_URL_KEY]: backendUrl });
+    return backendUrl;
+  }
+
   global.UVTStorage = {
     RECENT_QUESTIONS_KEY,
+    BACKEND_URL_KEY,
+    DEFAULT_BACKEND_URL,
     storageGet,
     storageSet,
+    normalizeBackendUrl,
+    isAllowedBackendUrl,
+    loadBackendUrl,
+    saveBackendUrl,
     getHistoryStorageKey,
     loadConversationHistory,
     saveConversationHistory,

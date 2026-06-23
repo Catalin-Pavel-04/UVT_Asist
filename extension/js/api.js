@@ -1,7 +1,7 @@
 "use strict";
 
 (function exposeApi(global) {
-  const BACKEND_URL = "http://127.0.0.1:5000";
+  const DEFAULT_BACKEND_URL = "http://127.0.0.1:5000";
   const REQUEST_TIMEOUT_MS = {
     health: 6000,
     faculties: 6000,
@@ -9,12 +9,20 @@
     chat: 150000
   };
 
+  async function getBackendUrl() {
+    if (global.UVTStorage?.loadBackendUrl) {
+      return global.UVTStorage.loadBackendUrl();
+    }
+    return DEFAULT_BACKEND_URL;
+  }
+
   async function fetchJson(path, options = {}, timeoutMs = REQUEST_TIMEOUT_MS.health) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(`${BACKEND_URL}${path}`, {
+      const backendUrl = await getBackendUrl();
+      const response = await fetch(`${backendUrl}${path}`, {
         ...options,
         signal: controller.signal
       });
@@ -74,8 +82,9 @@
   }
 
   global.UVTApi = {
-    BACKEND_URL,
+    DEFAULT_BACKEND_URL,
     REQUEST_TIMEOUT_MS,
+    getBackendUrl,
     fetchJson,
     checkBackend,
     getFaculties,

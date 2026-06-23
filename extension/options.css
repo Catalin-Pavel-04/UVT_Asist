@@ -1,0 +1,119 @@
+:root {
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --border: #d8dee8;
+  --text: #172033;
+  --muted: #667085;
+  --accent: #0f5c99;
+  --accent-strong: #084b80;
+  --danger: #b42318;
+  --success: #08745f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 360px;
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+  font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+}
+
+.options-shell {
+  max-width: 560px;
+  padding: 20px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+header p,
+.hint,
+.status-message {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+header p {
+  margin: 0 0 18px;
+}
+
+.options-form {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+}
+
+input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.hint {
+  margin: 8px 0 14px;
+}
+
+code {
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--accent-strong);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button.secondary {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--panel);
+}
+
+.status-message {
+  min-height: 20px;
+  margin: 12px 0 0;
+}
+
+.status-message.success {
+  color: var(--success);
+}
+
+.status-message.error {
+  color: var(--danger);
+}

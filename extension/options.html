@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UVT Asist - Opțiuni</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="options-shell">
+    <header>
+      <h1>UVT Asist</h1>
+      <p>Configurare locală pentru backendul Flask.</p>
+    </header>
+
+    <form id="optionsForm" class="options-form">
+      <label for="backendUrl">Backend URL</label>
+      <input
+        id="backendUrl"
+        name="backendUrl"
+        type="url"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="http://127.0.0.1:5000"
+        required
+      />
+      <p class="hint">
+        Sunt acceptate doar adrese locale permise de extensie: <code>http://127.0.0.1:5000</code> sau <code>http://localhost:5000</code>.
+      </p>
+
+      <div class="actions">
+        <button type="submit">Salvează</button>
+        <button id="resetBackendUrl" type="button" class="secondary">Resetează</button>
+      </div>
+
+      <p id="statusMessage" class="status-message" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <script src="js/storage.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
