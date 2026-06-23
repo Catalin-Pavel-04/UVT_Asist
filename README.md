@@ -6,21 +6,65 @@ The system is designed as local-index-first RAG. Official UVT and faculty pages 
 
 ## Architecture
 
-- `extension/`: Chrome extension popup used by the student.
-- `backend/app.py`: Flask API, chat orchestration, response payloads, source verification, feedback logging, health reporting.
-- `backend/ollama_client.py`: local Ollama chat and embedding API client.
-- `backend/vector_store.py`: Qdrant collection setup, payload indexes, vector upsert, filtered search, index status.
-- `backend/vector_indexer.py`: chunk-to-embedding text formatting and vector index rebuild logic.
-- `backend/retriever.py`: Romanian normalization, typo correction, intent detection, policy routing, Qdrant search orchestration, deterministic reranking, confidence scoring.
-- `backend/page_index.py`: chunk schema, page type detection, JSON index loading, legacy index upgrade.
-- `backend/build_index.py`: crawler plus JSON and Qdrant index builder.
-- `backend/live_fetch.py`: official page fetching and text extraction for HTML, PDF, DOCX, text, and optional OCR assets.
-- `backend/site_cache.py`: short-lived live verification cache.
-- `backend/prompts.py`: local RAG prompt contract.
-- `backend/faculties.py`: UVT and faculty source configuration.
-- `backend/evaluation/eval_questions.json`: versioned RAG evaluation questions.
-- `backend/scripts/evaluate_rag.py`: local evaluation runner that writes JSON, CSV, and Markdown reports.
-- `backend/scripts/demo_check.py`: reproducible local demo readiness checker.
+- `extension/`: Chrome extension loaded with Load unpacked; this is the only user-facing interface.
+- `extension/js/api.js`: communication with the local Flask backend, including `/health`, `/faculties`, `/indexing/status`, `/chat`, and `/feedback`.
+- `extension/js/storage.js`: `chrome.storage.local` helpers, backend URL configuration, theme, recent questions, and per-faculty conversation history.
+- `extension/js/state.js`: popup conversation state and normalized history/source data.
+- `extension/js/render.js`: rendering for messages, source cards, confidence badges, indexing state, recent questions, and feedback controls.
+- `extension/options.html` and `extension/options.js`: extension options page for configuring the local backend URL.
+- `backend/app.py`: Flask entrypoint with `create_app()`, CORS configuration, blueprint registration, startup indexing hooks, and `python backend/app.py` compatibility.
+- `backend/api/`: thin HTTP route blueprints for health, faculties, indexing status, chat, and feedback.
+- `backend/services/`: application services for chat orchestration, feedback persistence, health reporting, indexing state/startup rebuilds, and structured telemetry.
+- `backend/core/`: centralized runtime configuration, environment parsing, logging setup, and shared backend settings.
+- `backend/rag/`: RAG internals for text normalization, query analysis, intent detection, retrieval orchestration, and confidence scoring.
+- `backend/rag/ranking/`: deterministic ranking signals split into lexical, faculty, page type, and policy/regulation scoring.
+- `backend/scripts/`: operational scripts for vector builds, smoke retrieval, demo readiness checks, crawling, and RAG/Q&A evaluation.
+- `backend/tests/`: pytest unit and integration tests for backend contracts, retrieval helpers, evaluation logic, config, and services.
+- `docs/`: technical, development, architecture, evaluation, latency, failure-case, and ablation-study documentation.
+- `scripts/`: PowerShell wrappers for setup, Qdrant startup, index builds, backend startup, smoke checks, tests, and evaluation.
+
+For deeper technical documentation, see:
+
+- [docs/architecture.md](docs/architecture.md)
+- [docs/project_structure.md](docs/project_structure.md)
+- [docs/development.md](docs/development.md)
+- [docs/evaluation/methodology.md](docs/evaluation/methodology.md)
+- [docs/evaluation/ablation_plan.md](docs/evaluation/ablation_plan.md)
+
+## Project Structure
+
+```text
+UVT_Asist/
+|-- extension/
+|   |-- manifest.json
+|   |-- popup.html / popup.css / popup.js
+|   |-- options.html / options.css / options.js
+|   `-- js/
+|       |-- api.js
+|       |-- storage.js
+|       |-- state.js
+|       `-- render.js
+|-- backend/
+|   |-- app.py
+|   |-- api/
+|   |-- services/
+|   |-- core/
+|   |-- rag/
+|   |   `-- ranking/
+|   |-- scripts/
+|   |-- tests/
+|   |-- evaluation/
+|   |-- data/
+|   `-- build_index.py
+|-- docs/
+|   |-- architecture.md
+|   |-- development.md
+|   `-- evaluation/
+|-- scripts/
+|-- docker-compose.yml
+|-- requirements-dev.txt
+`-- README.md
+```
 
 ## Local AI Stack
 
@@ -147,6 +191,8 @@ Windows wrapper commands are available in `scripts/`:
 .\scripts\smoke.ps1
 .\scripts\test.ps1
 .\scripts\test.ps1 -EvaluateRag
+.\scripts\final_check.ps1
+.\scripts\final_check.ps1 -FullStack
 ```
 
 If `make` is available, the equivalent targets are:
@@ -226,11 +272,12 @@ The script checks Python imports, `backend/.env`, Ollama availability, configure
 
 ## Checklist demo
 
-Use [docs/demo_checklist.md](docs/demo_checklist.md) before the thesis presentation. It lists the local services to start, the questions to demonstrate, and the UI evidence to show to the committee.
+Use the final [demo checklist](docs/demo_checklist.md) before the thesis presentation. It lists the local services to start, validation commands, recommended questions, UI evidence, and common recovery steps.
 
 ## Documentatie tehnica
 
 - [Arhitectura tehnica](docs/architecture.md): descrie extensia Chrome, backendul Flask, crawlerul, chunking-ul, embeddings locale, Qdrant, retrieval, reranking, live verification, generarea cu Ollama si confidence score.
+- [Structura proiectului](docs/project_structure.md): explica organizarea codului pe directoare si responsabilitatile layerelor backend, RAG, extensie, teste, documentatie si scripturi.
 - [Ghid de dezvoltare locala](docs/development.md): setup Windows PowerShell, Ollama, Qdrant, build index, backend Flask si incarcarea extensiei Chrome.
 - [Metodologie evaluare RAG/Q&A](docs/evaluation/methodology.md): explica seturile de evaluare, pass/fail, scorul Q&A, Top-1/Top-3 URL, latenta si tratarea intrebarilor fara raspuns sigur.
 - [Plan ablation study](docs/evaluation/ablation_plan.md): descrie variantele lexical only, vector only, vector + reranking, live verification si full system.
@@ -434,6 +481,15 @@ Run fast automated tests after backend, retriever, index-schema, or API contract
 ```powershell
 python -m pytest
 .\scripts\test.ps1
+.\scripts\final_check.ps1
+```
+
+GitHub Actions runs the same fast offline validation on push to `main` and pull requests targeting `main`: dependency install, `python -m compileall backend`, and `python -m pytest`. CI does not start Ollama, Qdrant, Docker, the Flask server, smoke retrieval, demo checks, or RAG evaluation.
+
+Before a thesis demo, after starting Ollama and Qdrant, run the full local check:
+
+```powershell
+.\scripts\final_check.ps1 -FullStack
 ```
 
 Run retrieval smoke tests after index, retriever, embedding, or Qdrant changes:

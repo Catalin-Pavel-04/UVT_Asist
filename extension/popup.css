@@ -94,7 +94,7 @@ h1 {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   flex: 0 0 auto;
 }
 
@@ -105,6 +105,24 @@ h1 {
   border-radius: 8px;
   color: var(--text);
   background: var(--panel);
+}
+
+.backend-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid rgba(8, 116, 95, 0.28);
+  border-radius: 999px;
+  color: var(--success);
+  background: var(--success-soft);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.backend-mode-badge[hidden] {
+  display: none;
 }
 
 .status-dot {
@@ -290,19 +308,27 @@ textarea:focus {
 }
 
 .technical-details {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+  background: var(--panel-soft);
 }
 
 .technical-details summary {
   cursor: pointer;
+  padding: 8px 10px;
   color: var(--text);
   font-weight: 700;
+  list-style-position: inside;
 }
 
 .technical-details .meta-line {
-  margin-top: 6px;
+  padding: 0 10px 10px;
+  margin-top: 0;
+  overflow-wrap: anywhere;
 }
 
 .chat {
@@ -400,16 +426,63 @@ textarea:focus {
 .source-card {
   padding: 10px;
   margin-bottom: 7px;
+  border-left: 4px solid var(--accent);
   box-shadow: none;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.source-card.verified {
+  border-left-color: var(--success);
+}
+
+.source-card.local-index {
+  border-left-color: var(--accent);
+}
+
+.source-card:hover {
+  background: var(--panel-soft);
+  transform: translateY(-1px);
+}
+
+.source-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .source-label {
   min-width: 0;
-  margin-bottom: 6px;
+  margin-bottom: 0;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.source-status-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 20px;
+  max-width: 104px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.source-status-badge.verified {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.source-status-badge.local-index {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .source-link {
@@ -464,6 +537,24 @@ textarea:focus {
   border-radius: 8px;
   font-size: 12px;
   font-weight: 700;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.secondary-btn:not(:disabled):hover,
+.feedback-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.copy-action:not(:disabled) {
+  border-color: rgba(15, 92, 153, 0.35);
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.danger-action:not(:disabled) {
+  border-color: rgba(180, 35, 24, 0.28);
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .recent {
@@ -540,12 +631,28 @@ textarea:focus {
   align-items: center;
   flex-wrap: wrap;
   gap: 7px;
-  padding: 0 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
 }
 
 .feedback-btn {
-  padding: 5px 9px;
+  padding: 6px 10px;
   font-size: 11px;
+  font-weight: 800;
+}
+
+.feedback-btn.positive {
+  border-color: rgba(8, 116, 95, 0.28);
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.feedback-btn.negative {
+  border-color: rgba(180, 35, 24, 0.24);
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .feedback-state {
@@ -594,4 +701,10 @@ body.dark .meta-badge.muted {
 
 body.dark .source-link {
   color: #a8d5ff;
+}
+
+body.dark .source-card:hover,
+body.dark .feedback-actions,
+body.dark .technical-details {
+  background: rgba(15, 23, 42, 0.48);
 }

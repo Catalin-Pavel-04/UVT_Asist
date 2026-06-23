@@ -1,66 +1,293 @@
-# Checklist demo
+# Checklist final pentru demo-ul de licenta
 
-## Înainte de demo
+Acest checklist este gandit pentru rularea demonstratiei locale UVT_Asist in fata comisiei. Pasii presupun ca proiectul este deschis in root-ul repository-ului si ca lucrezi pe Windows PowerShell.
 
-- Rulează verificarea locală:
+## Inainte de demo
 
-```powershell
-python backend/scripts/demo_check.py
-```
-
-- Pornește Qdrant:
+- [ ] Activeaza mediul virtual Python:
 
 ```powershell
-docker compose up -d qdrant
+.venv\Scripts\activate
+python --version
 ```
 
-- Pornește Ollama:
+- [ ] Verifica existenta fisierului `backend\.env`:
 
 ```powershell
-ollama serve
+Test-Path backend\.env
 ```
 
-- Verifică modelele Ollama: `qwen3:4b` și `nomic-embed-text`.
-- Dacă lipsesc modelele, rulează:
+- [ ] Verifica setarile importante din `.env`:
+
+```powershell
+Get-Content backend\.env | Select-String "OLLAMA_GENERATION_MODEL|OLLAMA_EMBEDDING_MODEL|QDRANT|LIVE_VERIFY|ALLOWED_CORS_ORIGINS"
+```
+
+- [ ] Verifica daca Ollama raspunde:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:11434/api/tags
+```
+
+- [ ] Verifica modelele Ollama necesare:
+
+```powershell
+ollama list
+```
+
+Modelele asteptate pentru configuratia implicita sunt:
+
+- `qwen3:4b`
+- `nomic-embed-text`
+
+Daca lipsesc, ruleaza:
 
 ```powershell
 ollama pull qwen3:4b
 ollama pull nomic-embed-text
 ```
 
-- Dacă indexul lipsește, rulează:
+- [ ] Verifica Qdrant:
 
 ```powershell
-python backend/build_index.py
+docker compose ps
+Invoke-RestMethod http://127.0.0.1:6333/collections
 ```
 
-- Pornește backend-ul:
+- [ ] Verifica indexul JSON:
 
 ```powershell
-python backend/app.py
+Test-Path backend\data\page_index.json
 ```
 
-- Verifică endpoint-ul `/health`: `http://127.0.0.1:5000/health`.
-- Încarcă extensia Chrome din folderul `extension/`.
+Daca lipseste sau este vechi, reconstruieste indexul:
 
-## Întrebări de demonstrat
+```powershell
+python backend\build_index.py
+```
 
-- `Unde găsesc orarul la Informatică?`
-  Comportament așteptat: sursă oficială `info.uvt.ro/orare`.
-- `Unde găsesc secretariatul Facultății de Informatică?`
-  Comportament așteptat: sursă oficială de contact/secretariat.
-- `Este posibil ca un student să beneficieze de 2 burse?`
-  Comportament așteptat: metodologie/regulament burse.
-- `Cum se depune dosarul pentru creditele de voluntariat?`
-  Comportament așteptat: pagină/sursă oficială despre credite sau portofoliu de voluntariat.
-- `Care va fi media minimă de admitere de anul viitor?`
-  Comportament așteptat: confidence low sau răspuns că sursele oficiale nu sunt suficiente.
+- [ ] Verifica vector indexul Qdrant prin health check sau scriptul demo:
 
-## Ce trebuie arătat comisiei
+```powershell
+python backend\scripts\demo_check.py
+```
 
-- Statusul backend-ului.
-- Sursele oficiale.
-- Confidence score.
-- Verificare live sau index local.
-- Evaluarea RAG.
-- Fallback pentru întrebări nesigure.
+- [ ] Ruleaza testele rapide offline:
+
+```powershell
+python -m pytest
+```
+
+- [ ] Ruleaza smoke retrieval, dupa ce Ollama si Qdrant sunt pornite:
+
+```powershell
+python backend\scripts\smoke_retrieval.py
+```
+
+- [ ] Ruleaza verificarea generala de demo:
+
+```powershell
+python backend\scripts\demo_check.py
+```
+
+## Pornire demo
+
+Deschide terminale separate pentru serviciile care trebuie sa ramana pornite.
+
+1. Porneste Ollama:
+
+```powershell
+ollama serve
+```
+
+2. Porneste Qdrant:
+
+```powershell
+docker compose up -d qdrant
+```
+
+3. Activeaza mediul virtual si porneste backendul Flask:
+
+```powershell
+.venv\Scripts\activate
+python backend\app.py
+```
+
+4. Verifica endpointul `/health`:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/health
+```
+
+In raspuns, urmareste in special:
+
+- `ready`;
+- `retrieval_mode`;
+- `checks.ollama`;
+- `checks.generation_model`;
+- `checks.embedding_model`;
+- `checks.json_index`;
+- `checks.qdrant_index`;
+- `vector_index.points_count`.
+
+5. Incarca extensia Chrome:
+
+- deschide `chrome://extensions`;
+- activeaza Developer mode;
+- apasa Load unpacked;
+- selecteaza folderul `extension/`;
+- deschide popup-ul extensiei UVT_Asist.
+
+6. Daca backend URL-ul nu este cel implicit, deschide pagina de optiuni a extensiei si seteaza:
+
+```text
+http://127.0.0.1:5000
+```
+
+## Intrebari recomandate
+
+Foloseste aceste intrebari pentru a demonstra scenarii diferite: navigare, facultate specifica, regulament, admitere si corectie typo.
+
+- [ ] Facultate `info`: `Unde gasesc orarul?`
+
+Comportament asteptat: sursa oficiala de tip orar, preferabil `info.uvt.ro/orare`.
+
+- [ ] Facultate `info`: `Unde gasesc secretariatul facultatii de informatica?`
+
+Comportament asteptat: pagina oficiala de contact/secretariat pentru Informatica.
+
+- [ ] Facultate `uvt`: `Este posibil ca un student sa beneficieze de 2 burse?`
+
+Comportament asteptat: surse oficiale despre burse, metodologie sau regulament.
+
+- [ ] Facultate `uvt`: `Unde gasesc informatii despre admitere?`
+
+Comportament asteptat: pagini oficiale UVT de admitere.
+
+- [ ] Facultate `info`: `Unde gasesc orrarul la info?`
+
+Comportament asteptat: sistemul corecteaza typo-ul `orrarul` si prefera pagina oficiala de orar.
+
+## Ce trebuie sa observ in UI
+
+- [ ] Raspunsul afisat este concis si in romana.
+- [ ] Cardurile de surse contin URL-uri oficiale UVT sau ale facultatilor.
+- [ ] Badge-ul de `confidence` este vizibil si coerent cu raspunsul.
+- [ ] UI-ul indica daca raspunsul vine din index local si/sau verificare live.
+- [ ] Elementul `Detalii tehnice` poate fi deschis pentru informatii despre retrieval, intent si generation mode.
+- [ ] Butoanele de feedback `Util` si `Inexact` sunt disponibile dupa raspuns.
+- [ ] Butonul de copiere raspuns copiaza ultimul raspuns al asistentului.
+- [ ] Butonul de stergere conversatie curata istoricul curent.
+- [ ] Daca backendul este oprit, extensia afiseaza starea de backend indisponibil, nu ramane blocata.
+
+## Probleme frecvente
+
+### Ollama nu ruleaza
+
+Simptom: `/health` raporteaza Ollama indisponibil sau intrebarile nu pot fi generate.
+
+Rezolvare:
+
+```powershell
+ollama serve
+```
+
+### Modelul Ollama lipseste
+
+Simptom: `/health` raporteaza `generation_model=false` sau `embedding_model=false`.
+
+Rezolvare:
+
+```powershell
+ollama pull qwen3:4b
+ollama pull nomic-embed-text
+```
+
+### Qdrant nu ruleaza
+
+Simptom: `/health` raporteaza `qdrant_index=false` sau smoke retrieval nu foloseste Qdrant.
+
+Rezolvare:
+
+```powershell
+docker compose up -d qdrant
+Invoke-RestMethod http://127.0.0.1:6333/collections
+```
+
+### Indexul lipseste
+
+Simptom: `/health` raporteaza `json_index=false`, `qdrant_index=false` sau `points_count=0`.
+
+Rezolvare:
+
+```powershell
+python backend\build_index.py
+```
+
+Daca exista deja `backend\data\page_index.json`, dar lipseste doar vector indexul:
+
+```powershell
+python backend\scripts\build_vector_index.py
+```
+
+### CORS sau extensia nu comunica cu backendul
+
+Simptom: popup-ul spune ca backendul este indisponibil, desi Flask ruleaza.
+
+Verificari:
+
+- backendul ruleaza pe `http://127.0.0.1:5000`;
+- extensia are backend URL setat la `http://127.0.0.1:5000`;
+- `backend\.env` contine origini locale in `ALLOWED_CORS_ORIGINS`;
+- `extension/manifest.json` are host permissions pentru `127.0.0.1` si `localhost`.
+
+Pentru demo local, valoarea obisnuita este:
+
+```env
+ALLOWED_CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000
+```
+
+Daca browserul cere explicit origin de extensie, se poate adauga temporar pentru demo local:
+
+```env
+ALLOWED_CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000,chrome-extension://*
+```
+
+### Live verification incetineste raspunsul
+
+Simptom: raspunsurile sunt corecte, dar demo-ul pare lent cand backendul verifica pagini oficiale live.
+
+Pentru demo offline mai predictibil, seteaza in `backend\.env`:
+
+```env
+LIVE_VERIFY_ENABLED=false
+LIVE_VERIFY_LIMIT=0
+```
+
+Dupa modificarea `.env`, reporneste backendul Flask.
+
+## Secventa scurta chiar inainte de prezentare
+
+Ruleaza aceste comenzi in ordine:
+
+```powershell
+.venv\Scripts\activate
+docker compose up -d qdrant
+ollama list
+python -m pytest
+python backend\scripts\demo_check.py
+python backend\scripts\smoke_retrieval.py
+python backend\app.py
+```
+
+Apoi verifica in browser:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/health
+```
+
+In final, deschide extensia Chrome si testeaza intrebarea:
+
+```text
+Unde gasesc orarul?
+```

@@ -92,8 +92,8 @@ async function checkIndexingStatus() {
     UVTRender.setStatus(
       refs,
       "error",
-      "Backend indisponibil",
-      `Nu pot citi progresul indexării de la ${backendUrl}.`
+      "Backend local indisponibil",
+      `Nu pot citi progresul indexării de la ${backendUrl}. Verifică dacă Flask este pornit local.`
     );
   }
 }
@@ -118,14 +118,14 @@ async function checkBackend() {
       UVTRender.setStatus(
         refs,
         "idle",
-        "Sistem pregătit",
+        "Sistem local pregătit",
         `Index oficial: ${chunkCount} fragmente. Vectori: ${vectorCount}. Model răspuns: ${generationModel}. Embedding: ${embeddingModel}. Build: ${builtAt}.`
       );
     } else {
       UVTRender.setStatus(
         refs,
         "warning",
-        "Sistem parțial disponibil",
+        "Sistem local parțial disponibil",
         healthMessages.length ? healthMessages.join(" ") : "Unele componente locale nu sunt complet disponibile."
       );
     }
@@ -139,10 +139,10 @@ async function checkBackend() {
     UVTRender.setStatus(
       refs,
       "error",
-      "Backend indisponibil",
-      `Pornește backend-ul Flask pe ${backendUrl} și reîncarcă popup-ul.`
+      "Backend local indisponibil",
+      `Pornește Flask pe ${backendUrl}. Dacă folosești alt URL local, verifică Opțiunile extensiei.`
     );
-    refs.emptyText.textContent = "Backend-ul nu răspunde. Extensia rămâne deschisă, dar nu poate genera răspunsuri.";
+    refs.emptyText.textContent = "Extensia rămâne disponibilă, dar nu poate trimite întrebări până când backendul local nu răspunde.";
     return false;
   }
 }
@@ -274,7 +274,7 @@ async function sendMessage(prefilledQuestion = null) {
   const history = UVTState.buildHistoryPayload();
 
   setBusy(true);
-  UVTRender.setStatus(refs, "loading", "Analizez întrebarea", "Caut semantic în Qdrant și verific doar sursele de top.");
+  UVTRender.setStatus(refs, "loading", "Analizez întrebarea", "Caut semantic în Qdrant local și verific doar sursele de top.");
   UVTRender.addUserMessage(refs, question);
   refs.input.value = "";
   UVTRender.addLoadingMessage(refs);
@@ -338,11 +338,11 @@ async function sendMessage(prefilledQuestion = null) {
       refs,
       "error",
       "Nu m-am putut conecta",
-      error.message || `Verifică dacă backend-ul Flask rulează pe ${backendUrl}.`
+      error.message || `Verifică dacă backendul Flask rulează local pe ${backendUrl}.`
     );
     UVTRender.addBotMessage(
       refs,
-      "Nu m-am putut conecta la backend-ul Flask. Verifică serviciile locale și încearcă din nou."
+      `Nu m-am putut conecta la backendul Flask local (${backendUrl}). Verifică Ollama, Qdrant, Flask și URL-ul din Opțiunile extensiei.`
     );
   } finally {
     setBusy(false);

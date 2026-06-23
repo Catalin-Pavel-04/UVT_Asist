@@ -39,6 +39,8 @@ Wrapper-ele disponibile:
 .\scripts\test.ps1                  # compileall + pytest
 .\scripts\test.ps1 -Coverage
 .\scripts\test.ps1 -EvaluateRag     # ruleaza si evaluarea RAG, daca scriptul exista
+.\scripts\final_check.ps1           # verificare rapida inainte de demo
+.\scripts\final_check.ps1 -FullStack # include smoke_retrieval si demo_check
 ```
 
 Exista si un `Makefile` pentru medii unde `make` este disponibil:
@@ -230,7 +232,37 @@ Unde gasesc informatii despre admitere?
 Unde gasesc orrarul la info?
 ```
 
-## 8. Testare automata
+## 8. CORS si extensia Chrome
+
+Backendul Flask aplica CORS doar pe endpointurile publice ale aplicatiei si accepta numai originile configurate in `ALLOWED_CORS_ORIGINS`. Defaultul este local-first:
+
+```env
+ALLOWED_CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000
+```
+
+Extensia Chrome are `host_permissions` pentru:
+
+```json
+"http://127.0.0.1:5000/*",
+"http://localhost:5000/*"
+```
+
+In scenariul normal `Load unpacked`, popup-ul extensiei poate face requesturi catre backendul local daca URL-ul din optiunile extensiei este `http://127.0.0.1:5000` sau `http://localhost:5000`.
+
+Daca browserul blocheaza requestul cu o eroare CORS in timpul unui demo local, verifica:
+
+- backendul ruleaza pe `127.0.0.1:5000`;
+- URL-ul din optiunile extensiei este local;
+- `backend\.env` contine originile locale in `ALLOWED_CORS_ORIGINS`;
+- daca este necesar pentru demo, adauga doar wildcardul de extensie Chrome:
+
+```env
+ALLOWED_CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000,chrome-extension://*
+```
+
+Nu adauga origini web publice si nu folosi wildcard extern. Proiectul este gandit pentru rulare locala, nu pentru expunere publica.
+
+## 9. Testare automata
 
 Ruleaza compilarea Python:
 
@@ -250,6 +282,18 @@ Echivalent prin wrapper:
 .\scripts\test.ps1
 ```
 
+Verificare finala rapida inainte de demo:
+
+```powershell
+.\scripts\final_check.ps1
+```
+
+Verificare completa dupa ce Ollama si Qdrant sunt pornite:
+
+```powershell
+.\scripts\final_check.ps1 -FullStack
+```
+
 Ruleaza smoke retrieval cand Ollama si Qdrant sunt disponibile:
 
 ```powershell
@@ -264,7 +308,7 @@ Echivalent prin wrapper:
 
 Smoke retrieval este asteptat sa esueze daca Ollama sau Qdrant nu ruleaza, deoarece nu se pot crea embeddings si cautarea vectoriala nu poate fi validata.
 
-## 9. Evaluare RAG
+## 10. Evaluare RAG
 
 Cand stackul local este pornit complet:
 

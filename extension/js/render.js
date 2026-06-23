@@ -15,6 +15,7 @@
       emptyState: document.getElementById("emptyState"),
       emptyText: document.getElementById("emptyText"),
       statusDot: document.getElementById("statusDot"),
+      backendModeBadge: document.getElementById("backendModeBadge"),
       themeToggle: document.getElementById("themeToggle"),
       clearConversation: document.getElementById("clearConversation"),
       copyAnswer: document.getElementById("copyAnswer"),
@@ -32,6 +33,9 @@
 
   function setBackendOnline(refs, online) {
     refs.statusDot.classList.toggle("online", online);
+    if (refs.backendModeBadge) {
+      refs.backendModeBadge.hidden = !online;
+    }
   }
 
   function setStatus(refs, kind, title, text) {
@@ -76,7 +80,7 @@
     refs.indexProgress.hidden = false;
     refs.indexProgressBar.style.width = `${progress}%`;
     refs.indexProgressPercent.textContent = `${progress}%`;
-      refs.indexProgressText.textContent = indexing.message || "Indexare în curs";
+    refs.indexProgressText.textContent = indexing.message || "Indexare în curs";
   }
 
   function resetMeta(refs) {
@@ -186,12 +190,23 @@
     block.appendChild(title);
 
     sources.forEach((source) => {
+      const verified = Boolean(source.verified);
       const card = document.createElement("article");
-      card.className = "source-card";
+      card.className = `source-card ${verified ? "verified" : "local-index"}`;
+
+      const head = document.createElement("div");
+      head.className = "source-head";
 
       const label = document.createElement("div");
       label.className = "source-label";
-      label.textContent = source.title;
+      label.textContent = source.title || "Sursă oficială";
+
+      const badge = document.createElement("span");
+      badge.className = `source-status-badge ${verified ? "verified" : "local-index"}`;
+      badge.textContent = verified ? "Verificat live" : "Index local";
+      badge.title = verified
+        ? "Sursa a fost reverificată la runtime."
+        : "Sursa provine din indexul local.";
 
       const link = document.createElement("a");
       link.className = "source-link";
@@ -201,7 +216,8 @@
       link.textContent = formatSourceUrl(source.url);
       link.title = source.url;
 
-      card.append(label, link);
+      head.append(label, badge);
+      card.append(head, link);
       block.appendChild(card);
     });
 
@@ -218,12 +234,12 @@
 
     const useful = document.createElement("button");
     useful.type = "button";
-    useful.className = "feedback-btn";
+    useful.className = "feedback-btn positive";
     useful.textContent = "Util";
 
     const inaccurate = document.createElement("button");
     inaccurate.type = "button";
-    inaccurate.className = "feedback-btn";
+    inaccurate.className = "feedback-btn negative";
     inaccurate.textContent = "Inexact";
 
     const stateText = document.createElement("span");
@@ -366,13 +382,13 @@
     const messages = [];
 
     if (checks.ollama === false || ollama.available === false) {
-      messages.push("Ollama nu răspunde. Pornește `ollama serve`.");
+      messages.push("Ollama local nu răspunde. Pornește `ollama serve`.");
     } else {
       if (checks.generation_model === false || ollama.generation_model_available === false) {
-        messages.push(`Modelul de generare lipsește. Rulează \`ollama pull ${generationModel}\`.`);
+        messages.push(`Modelul local de generare lipsește. Rulează \`ollama pull ${generationModel}\`.`);
       }
       if (checks.embedding_model === false || ollama.embedding_model_available === false) {
-        messages.push(`Modelul de embedding lipsește. Rulează \`ollama pull ${embeddingModel}\`.`);
+        messages.push(`Modelul local de embedding lipsește. Rulează \`ollama pull ${embeddingModel}\`.`);
       }
     }
 
@@ -382,7 +398,7 @@
 
     if (checks.qdrant_index === false || vectorIndex.available === false || vectorCount === 0) {
       if (vectorIndex.available === false || vectorIndex.exists === false) {
-        messages.push("Qdrant este indisponibil. Rulează `docker compose up -d qdrant`.");
+        messages.push("Qdrant local este indisponibil. Rulează `docker compose up -d qdrant`.");
       } else {
         messages.push("Qdrant nu are vectori indexați. Pornește Qdrant și reconstruiește indexul.");
       }
