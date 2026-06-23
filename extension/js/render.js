@@ -19,6 +19,7 @@
       themeToggle: document.getElementById("themeToggle"),
       clearConversation: document.getElementById("clearConversation"),
       copyAnswer: document.getElementById("copyAnswer"),
+      recentPanel: document.getElementById("recentPanel"),
       recentQuestions: document.getElementById("recentQuestions"),
       statusPanel: document.getElementById("statusPanel"),
       statusTitle: document.getElementById("statusTitle"),
@@ -45,17 +46,21 @@
   }
 
   function updateControlState(refs, snapshot) {
-    const disabled = Boolean(snapshot.sending || snapshot.indexing);
+    const busy = Boolean(snapshot.sending || snapshot.indexing);
+    const backendUnavailable = snapshot.backendAvailable === false;
     const hasRenderedMessages = refs.log.querySelectorAll(".msg").length > 0;
     const hasHistory = (Array.isArray(snapshot.history) && snapshot.history.length > 0) || hasRenderedMessages;
-    refs.send.disabled = disabled;
-    refs.input.disabled = disabled;
-    refs.faculty.disabled = disabled;
+    refs.send.disabled = busy || backendUnavailable;
+    refs.send.title = backendUnavailable
+      ? "Pornește backendul Flask local pentru a trimite întrebări."
+      : "";
+    refs.input.disabled = busy;
+    refs.faculty.disabled = busy;
     refs.chips.forEach((chip) => {
-      chip.disabled = disabled;
+      chip.disabled = busy || backendUnavailable;
     });
-    refs.clearConversation.disabled = disabled || !hasHistory;
-    refs.copyAnswer.disabled = disabled || !snapshot.hasAssistant;
+    refs.clearConversation.disabled = busy || !hasHistory;
+    refs.copyAnswer.disabled = busy || !snapshot.hasAssistant;
   }
 
   function clampProgress(value) {
@@ -104,9 +109,22 @@
     refs.log.appendChild(refs.emptyState);
   }
 
-  function toggleEmptyState(refs) {
+  function hasConversation(refs) {
     const hasMessages = refs.log.querySelectorAll(".msg").length > 0;
+    return hasMessages;
+  }
+
+  function syncRecentPanel(refs) {
+    if (!refs.recentPanel) {
+      return;
+    }
+    refs.recentPanel.open = !hasConversation(refs);
+  }
+
+  function toggleEmptyState(refs) {
+    const hasMessages = hasConversation(refs);
     refs.emptyState.hidden = hasMessages;
+    syncRecentPanel(refs);
   }
 
   function scrollToBottom(refs) {
@@ -352,6 +370,8 @@
       item.addEventListener("click", () => onClick(question));
       refs.recentQuestions.appendChild(item);
     });
+    refs.recentPanel?.classList.toggle("has-items", questions.length > 0);
+    syncRecentPanel(refs);
   }
 
   function populateFaculties(refs, faculties, selectedFacultyId) {
@@ -433,6 +453,7 @@
     clearLog,
     toggleEmptyState,
     scrollToBottom,
+    hasConversation,
     createMessage,
     addUserMessage,
     addBotMessage,

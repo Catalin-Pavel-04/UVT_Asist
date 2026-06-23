@@ -20,9 +20,13 @@ const INDEXING_POLL_MS = 2000;
 const refs = UVTRender.createRefs();
 
 let indexingPollId = null;
+let backendAvailable = false;
 
 function updateControls() {
-  UVTRender.updateControlState(refs, UVTState.getSnapshot());
+  UVTRender.updateControlState(refs, {
+    ...UVTState.getSnapshot(),
+    backendAvailable
+  });
 }
 
 function setBusy(busy) {
@@ -48,13 +52,37 @@ function stopIndexingPoll() {
   }
 }
 
+function isBackendOnline() {
+  return backendAvailable;
+}
+
+function setBackendAvailability(online) {
+  backendAvailable = Boolean(online);
+  UVTRender.setBackendOnline(refs, backendAvailable);
+  updateControls();
+}
+
+async function setBackendUnavailableStatus() {
+  const backendUrl = await UVTApi.getBackendUrl();
+  const hasSavedConversation = UVTRender.hasConversation(refs);
+  setBackendAvailability(false);
+  UVTRender.setStatus(
+    refs,
+    "error",
+    "Backend local indisponibil",
+    hasSavedConversation
+      ? `Se afișează conversația salvată. Pentru răspunsuri noi, pornește Flask pe ${backendUrl}.`
+      : `Pornește Flask pe ${backendUrl}. Dacă folosești alt URL local, verifică Opțiunile extensiei.`
+  );
+}
+
 function handleIndexingStatus(indexing) {
   const running = Boolean(indexing?.running);
   setIndexingBusy(running);
   UVTRender.renderIndexingProgress(refs, indexing);
 
   if (running) {
-    UVTRender.setBackendOnline(refs, true);
+    setBackendAvailability(true);
     UVTRender.setStatus(
       refs,
       "loading",
@@ -85,16 +113,9 @@ async function checkIndexingStatus() {
       await checkBackend();
     }
   } catch {
-    const backendUrl = await UVTApi.getBackendUrl();
     stopIndexingPoll();
     setIndexingBusy(false);
-    UVTRender.setBackendOnline(refs, false);
-    UVTRender.setStatus(
-      refs,
-      "error",
-      "Backend local indisponibil",
-      `Nu pot citi progresul indexării de la ${backendUrl}. Verifică dacă Flask este pornit local.`
-    );
+    await setBackendUnavailableStatus();
   }
 }
 
@@ -108,7 +129,7 @@ async function checkBackend() {
     const embeddingModel = data.ollama?.embedding_model || "embedding local";
     const healthMessages = UVTRender.buildHealthMessages(data);
 
-    UVTRender.setBackendOnline(refs, true);
+    setBackendAvailability(true);
     if (handleIndexingStatus(data.indexing)) {
       refs.emptyText.textContent = "Indexarea oficială rulează. Întrebările vor fi disponibile după finalizare.";
       return true;
@@ -132,16 +153,9 @@ async function checkBackend() {
     refs.emptyText.textContent = "Exemple: orar, secretariat, admitere, burse, reguli despre cumularea burselor.";
     return true;
   } catch {
-    const backendUrl = await UVTApi.getBackendUrl();
     stopIndexingPoll();
     setIndexingBusy(false);
-    UVTRender.setBackendOnline(refs, false);
-    UVTRender.setStatus(
-      refs,
-      "error",
-      "Backend local indisponibil",
-      `Pornește Flask pe ${backendUrl}. Dacă folosești alt URL local, verifică Opțiunile extensiei.`
-    );
+    await setBackendUnavailableStatus();
     refs.emptyText.textContent = "Extensia rămâne disponibilă, dar nu poate trimite întrebări până când backendul local nu răspunde.";
     return false;
   }
@@ -152,7 +166,7 @@ async function loadFaculties() {
   try {
     const data = await UVTApi.getFaculties();
     UVTRender.populateFaculties(refs, data.faculties || FALLBACK_FACULTIES, saved);
-    UVTRender.setBackendOnline(refs, true);
+    setBackendAvailability(true);
   } catch {
     UVTRender.populateFaculties(refs, FALLBACK_FACULTIES, saved);
   }
@@ -166,6 +180,9 @@ async function loadConversationHistory(facultyId) {
   const items = await UVTStorage.loadConversationHistory(facultyId);
   UVTState.setHistory(items);
   UVTRender.renderConversation(refs, UVTState.getHistory(), { onFeedback: handleFeedback });
+  if (items.length > 0 && !isBackendOnline()) {
+    await setBackendUnavailableStatus();
+  }
   updateControls();
 }
 
@@ -193,9 +210,9 @@ async function toggleTheme() {
 async function handleFeedback(payload) {
   try {
     await UVTApi.postFeedback(payload);
-    UVTRender.setBackendOnline(refs, true);
+    setBackendAvailability(true);
   } catch (error) {
-    UVTRender.setBackendOnline(refs, false);
+    setBackendAvailability(false);
     throw error;
   }
 }
@@ -205,7 +222,11 @@ async function clearConversation() {
   await saveCurrentConversation();
   UVTRender.renderConversation(refs, UVTState.getHistory(), { onFeedback: handleFeedback });
   UVTRender.resetMeta(refs);
-  UVTRender.setStatus(refs, "idle", "Conversație ștearsă", "Poți începe o întrebare nouă pentru facultatea selectată.");
+  if (backendAvailable) {
+    UVTRender.setStatus(refs, "idle", "Conversație ștearsă", "Poți începe o întrebare nouă pentru facultatea selectată.");
+  } else {
+    await setBackendUnavailableStatus();
+  }
   updateControls();
 }
 
@@ -250,6 +271,11 @@ async function copyLastAnswer() {
 
 async function sendMessage(prefilledQuestion = null) {
   if (UVTState.isSending()) {
+    return;
+  }
+
+  if (!backendAvailable) {
+    await setBackendUnavailableStatus();
     return;
   }
 
@@ -322,23 +348,23 @@ async function sendMessage(prefilledQuestion = null) {
     UVTState.appendHistory("user", question);
     UVTState.appendHistory("assistant", answer, sources);
     await saveCurrentConversation();
-    UVTRender.setBackendOnline(refs, true);
+    setBackendAvailability(true);
   } catch (error) {
     UVTRender.removeLoadingMessage();
     UVTRender.resetMeta(refs);
     if (error.payload?.indexing) {
       handleIndexingStatus(error.payload.indexing);
-      UVTRender.setBackendOnline(refs, true);
+      setBackendAvailability(true);
       UVTRender.addBotMessage(refs, error.payload.answer || "Indexarea este în curs. Încearcă după finalizare.");
       return;
     }
-    UVTRender.setBackendOnline(refs, false);
+    setBackendAvailability(false);
     const backendUrl = await UVTApi.getBackendUrl();
     UVTRender.setStatus(
       refs,
       "error",
-      "Nu m-am putut conecta",
-      error.message || `Verifică dacă backendul Flask rulează local pe ${backendUrl}.`
+      "Backend local indisponibil",
+      `Nu s-a putut trimite întrebarea. Pornește Flask pe ${backendUrl} și încearcă din nou.`
     );
     UVTRender.addBotMessage(
       refs,
