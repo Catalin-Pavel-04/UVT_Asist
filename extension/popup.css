@@ -289,6 +289,22 @@ textarea:focus {
   background: var(--warning-soft);
 }
 
+.technical-details {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.technical-details summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.technical-details .meta-line {
+  margin-top: 6px;
+}
+
 .chat {
   min-height: 320px;
   max-height: 320px;
@@ -420,9 +436,17 @@ textarea:focus {
   margin: 10px 0;
 }
 
+.conversation-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 10px 0;
+}
+
 .chip,
 .recent-item,
-.feedback-btn {
+.feedback-btn,
+.secondary-btn {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text);
@@ -432,6 +456,14 @@ textarea:focus {
 .chip {
   padding: 7px 10px;
   font-size: 12px;
+}
+
+.secondary-btn {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .recent {
@@ -476,6 +508,7 @@ textarea:focus {
 .chip:hover,
 .recent-item:hover,
 .feedback-btn:hover,
+.secondary-btn:hover,
 .composer button:hover {
   filter: brightness(0.97);
 }

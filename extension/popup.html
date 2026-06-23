@@ -49,7 +49,10 @@
         <span id="confidenceBadge" class="meta-badge muted">Încredere --</span>
         <span id="verificationBadge" class="meta-badge muted">Index local</span>
       </div>
-      <div id="metaLine" class="meta-line">Paginile oficiale specifice au prioritate față de paginile generale.</div>
+      <details id="technicalDetails" class="technical-details">
+        <summary>Detalii tehnice</summary>
+        <div id="metaLine" class="meta-line">Paginile oficiale specifice au prioritate față de paginile generale.</div>
+      </details>
     </section>
 
     <section id="log" class="chat" aria-label="Conversație">
@@ -60,6 +63,11 @@
           Orar, secretariat, admitere, burse sau reguli despre cumularea burselor.
         </div>
       </div>
+    </section>
+
+    <section class="conversation-actions" aria-label="Acțiuni conversație">
+      <button id="clearConversation" class="secondary-btn" type="button">Șterge conversația</button>
+      <button id="copyAnswer" class="secondary-btn" type="button" disabled>Copiază răspunsul</button>
     </section>
 
     <section class="chips" aria-label="Întrebări rapide">
@@ -80,6 +88,10 @@
     </section>
   </main>
 
+  <script src="js/api.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/render.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
