@@ -232,7 +232,8 @@ Use [docs/demo_checklist.md](docs/demo_checklist.md) before the thesis presentat
 
 - [Arhitectura tehnica](docs/architecture.md): descrie extensia Chrome, backendul Flask, crawlerul, chunking-ul, embeddings locale, Qdrant, retrieval, reranking, live verification, generarea cu Ollama si confidence score.
 - [Ghid de dezvoltare locala](docs/development.md): setup Windows PowerShell, Ollama, Qdrant, build index, backend Flask si incarcarea extensiei Chrome.
-- [Metodologie evaluare RAG](docs/evaluation/methodology.md): explica setul de 100 de intrebari, metricile si legatura cu raportul comparativ.
+- [Metodologie evaluare RAG/Q&A](docs/evaluation/methodology.md): explica seturile de evaluare, pass/fail, scorul Q&A, Top-1/Top-3 URL, latenta si tratarea intrebarilor fara raspuns sigur.
+- [Plan ablation study](docs/evaluation/ablation_plan.md): descrie variantele lexical only, vector only, vector + reranking, live verification si full system.
 - [Cazuri de esec si refuz controlat](docs/evaluation/failure_cases.md): exemple de intrebari vagi, personale sau predictive unde sistemul trebuie sa ceara clarificari ori sa refuze un raspuns sigur.
 - [Note despre latenta](docs/evaluation/latency_notes.md): surse de latenta, interpretarea medie/mediana si practici pentru reducerea timpului de raspuns.
 
@@ -388,7 +389,7 @@ Generated reports are written under `backend/data/evaluation/`:
 
 `backend/data/evaluation/` is ignored by Git because it contains generated local reports. The stable evaluation dataset in `backend/evaluation/eval_questions.json` is versioned.
 
-For thesis write-up guidance and a reporting table template, see [docs/evaluation/README.md](docs/evaluation/README.md).
+For thesis write-up guidance, see [docs/evaluation/methodology.md](docs/evaluation/methodology.md), [docs/evaluation/ablation_plan.md](docs/evaluation/ablation_plan.md), and [docs/evaluation/README.md](docs/evaluation/README.md).
 
 Metric meaning:
 
