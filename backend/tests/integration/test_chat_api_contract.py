@@ -16,7 +16,7 @@ def client():
 
 def test_chat_empty_question_contract(monkeypatch, client) -> None:
     monkeypatch.setattr(
-        routes_chat,
+        routes_chat.chat_service,
         "handle_chat",
         lambda payload: (
             {

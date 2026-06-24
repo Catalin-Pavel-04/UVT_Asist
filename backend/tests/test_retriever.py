@@ -10,8 +10,10 @@ if str(BACKEND_DIR) not in sys.path:
 
 from unittest.mock import patch
 
-import retriever as retriever_module
-from retriever import analyze_query, rank_lexical_index, rank_vector_index, vector_search_limit_for_analysis
+import rag.query_analysis as query_analysis_module
+import rag.retrieval_service as retrieval_service_module
+from rag.query_analysis import analyze_query
+from rag.retrieval_service import rank_lexical_index, rank_vector_index, vector_search_limit_for_analysis
 
 
 def make_index(chunks: list[dict], built_at: str = "test") -> dict:
@@ -24,13 +26,146 @@ def make_index(chunks: list[dict], built_at: str = "test") -> dict:
     }
 
 
+def make_query_analysis_suggestion(prompt: str) -> dict:
+    question = prompt.split("Intrebare originala:", 1)[-1].lower()
+
+    if "orrarul" in question or "orarul" in question or "orar" in question:
+        return {
+            "corrected_question": question.replace("orrarul", "orarul").strip(),
+            "intent": "orar",
+            "is_policy_question": False,
+            "keywords": ["orar", "orare", "info"],
+            "faculty_hint": "info" if "info" in question else "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "secretariat" in question or "contact" in question:
+        return {
+            "corrected_question": question.strip(),
+            "intent": "contact",
+            "is_policy_question": False,
+            "keywords": ["contact", "secretariat", "uvt"],
+            "faculty_hint": "info" if "informatica" in question or "info" in question else "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "admitere" in question:
+        return {
+            "corrected_question": question.strip(),
+            "intent": "admitere",
+            "is_policy_question": False,
+            "keywords": ["admitere", "inscriere", "candidat"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "voluntariat" in question:
+        return {
+            "corrected_question": "cum se depune dosarul pentru credite voluntariat",
+            "intent": "regulamente",
+            "is_policy_question": True,
+            "keywords": ["credite", "voluntariat", "portofoliu", "formular", "adeverinta"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "cazare" in question and ("orfan" in question or "acte" in question):
+        return {
+            "corrected_question": "depunere dosar cazare orfan parinte acte documente",
+            "intent": "regulamente",
+            "is_policy_question": True,
+            "keywords": ["cazare", "dosar", "orfan", "parinte", "acte", "documente"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "monoparentala" in question or "acte trebuie" in question:
+        return {
+            "corrected_question": "familie monoparentala parinte financiar acte documente bursa sociala",
+            "intent": "regulamente",
+            "is_policy_question": True,
+            "keywords": ["familie", "monoparentala", "parinte", "financiar", "acte", "documente", "burse", "social"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "burse" in question or "bursa" in question:
+        return {
+            "corrected_question": "student beneficia 2 burse cumulare",
+            "intent": "regulamente",
+            "is_policy_question": True,
+            "keywords": ["student", "beneficia", "2", "burse", "cumulare"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "saptaman" in question or "sesiune" in question:
+        return {
+            "corrected_question": "unde vad saptamani de cursuri si sesiune",
+            "intent": "studenti",
+            "is_policy_question": False,
+            "keywords": ["calendar", "structura", "saptamani", "sesiune", "cursuri"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "vacante" in question or "vacantele" in question:
+        return {
+            "corrected_question": "unde verific vacante din anul universitar",
+            "intent": "studenti",
+            "is_policy_question": False,
+            "keywords": ["calendar", "structura", "vacante", "an", "universitar"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "semestr" in question:
+        return {
+            "corrected_question": "cand incepe semestru al doilea",
+            "intent": "studenti",
+            "is_policy_question": False,
+            "keywords": ["calendar", "structura", "semestru", "cursuri"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+    if "taxele" in question or "camine" in question:
+        return {
+            "corrected_question": "unde vad taxele pentru camine",
+            "intent": "studenti",
+            "is_policy_question": False,
+            "keywords": ["taxe", "camine", "cazare"],
+            "faculty_hint": "",
+            "requires_clarification": False,
+            "clarification_reason": "",
+        }
+
+    return {
+        "corrected_question": question.strip(),
+        "intent": "general",
+        "is_policy_question": False,
+        "keywords": [],
+        "faculty_hint": "",
+        "requires_clarification": False,
+        "clarification_reason": "",
+    }
+
+
 class RetrieverTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.query_analysis_patch = patch.object(retriever_module, "query_analysis_enabled", return_value=False)
+        query_analysis_module._QUERY_REWRITE_CACHE.clear()
+        self.query_analysis_patch = patch.object(query_analysis_module, "query_analysis_enabled", return_value=True)
+        self.ollama_analysis_patch = patch.object(
+            query_analysis_module,
+            "ask_ollama_json",
+            side_effect=lambda system_prompt, user_prompt, **kwargs: make_query_analysis_suggestion(user_prompt),
+        )
         self.query_analysis_patch.start()
+        self.ollama_analysis_patch.start()
         self.addCleanup(self.query_analysis_patch.stop)
+        self.addCleanup(self.ollama_analysis_patch.stop)
 
-    def test_typo_correction_routes_orrarul_to_schedule_intent(self) -> None:
+    def test_ollama_query_analysis_routes_orrarul_to_schedule_intent(self) -> None:
         analysis = analyze_query("Unde gasesc orrarul la info?")
 
         self.assertEqual(analysis.intent, "orar")
@@ -98,7 +233,7 @@ class RetrieverTests(unittest.TestCase):
             "last_indexed": "2026-01-01T00:00:00+00:00",
         }
 
-        with patch.object(retriever_module, "_retrieve_semantic_candidates", return_value=[bad_semantic_hit]):
+        with patch.object(retrieval_service_module, "_retrieve_semantic_candidates", return_value=[bad_semantic_hit]):
             result = rank_vector_index(
                 "Unde gasesc datele de contact UVT?",
                 make_index([contact_chunk], built_at="canonical-contact-test"),
@@ -126,7 +261,7 @@ class RetrieverTests(unittest.TestCase):
         self.assertIn("documente", analysis.expanded_tokens)
         self.assertNotIn("cumulare", analysis.expanded_tokens)
 
-        embedding_texts = retriever_module.build_query_embedding_texts(
+        embedding_texts = retrieval_service_module.build_query_embedding_texts(
             "Daca provin dintr-o familie monoparentala si doar un parinte ma ajuta financiar, ce acte trebuie?",
             analysis,
         )
@@ -164,8 +299,8 @@ class RetrieverTests(unittest.TestCase):
         }
 
         with (
-            patch.object(retriever_module, "query_analysis_enabled", return_value=True),
-            patch.object(retriever_module, "ask_ollama_json", return_value=suggestion),
+            patch.object(query_analysis_module, "query_analysis_enabled", return_value=True),
+            patch.object(query_analysis_module, "ask_ollama_json", return_value=suggestion),
         ):
             analysis = analyze_query("cum depun dosaru pt voluntariat?")
 
@@ -176,33 +311,27 @@ class RetrieverTests(unittest.TestCase):
         self.assertIn("adeverinta", analysis.expanded_tokens)
         self.assertIn("ollama_query_rewrite", analysis.corrections)
         self.assertIn("ollama_keywords", analysis.corrections)
-        self.assertIn("ollama_excluded:admitere", analysis.corrections)
 
-    def test_ollama_query_analysis_rejects_untrusted_keywords_and_falls_back(self) -> None:
-        suggestion = {
-            "corrected_question": "pizza admitere extraterestru",
-            "intent": "admitere",
-            "is_policy_question": False,
-            "keywords": ["pizza", "extraterestru", "voluntariat"],
-        }
-
+    def test_ollama_query_analysis_invalid_shape_falls_back_raw(self) -> None:
         with (
-            patch.object(retriever_module, "query_analysis_enabled", return_value=True),
-            patch.object(retriever_module, "ask_ollama_json", return_value=suggestion),
+            patch.object(query_analysis_module, "query_analysis_enabled", return_value=True),
+            patch.object(query_analysis_module, "ask_ollama_json", return_value=["not", "json", "object"]),
         ):
             analysis = analyze_query("Unde gasesc orarul?")
 
-        self.assertEqual(analysis.intent, "orar")
-        self.assertNotIn("pizza", analysis.expanded_tokens)
-        self.assertNotIn("extraterestru", analysis.expanded_tokens)
+        self.assertEqual(analysis.intent, "general")
+        self.assertEqual(analysis.rewrite_source, "raw_fallback")
+        self.assertEqual(analysis.corrected_question, "unde gasesc orarul?")
 
+        query_analysis_module._QUERY_REWRITE_CACHE.clear()
         with (
-            patch.object(retriever_module, "query_analysis_enabled", return_value=True),
-            patch.object(retriever_module, "ask_ollama_json", side_effect=RuntimeError("ollama unavailable")),
+            patch.object(query_analysis_module, "query_analysis_enabled", return_value=True),
+            patch.object(query_analysis_module, "ask_ollama_json", side_effect=RuntimeError("ollama unavailable")),
         ):
             fallback = analyze_query("Unde gasesc orarul?")
 
-        self.assertEqual(fallback.intent, "orar")
+        self.assertEqual(fallback.intent, "general")
+        self.assertEqual(fallback.rewrite_source, "raw_fallback")
         self.assertNotIn("ollama_keywords", fallback.corrections)
 
     def test_volunteering_credit_query_prefers_volunteering_sources(self) -> None:
@@ -309,14 +438,14 @@ class RetrieverTests(unittest.TestCase):
         analysis = analyze_query(question)
 
         self.assertGreaterEqual(vector_search_limit_for_analysis(analysis), 80)
-        embedding_texts = retriever_module.build_query_embedding_texts(question, analysis)
+        embedding_texts = retrieval_service_module.build_query_embedding_texts(question, analysis)
 
         self.assertTrue(any("Structura anului universitar" in text for text in embedding_texts[1:]))
 
     def test_housing_queries_do_not_get_calendar_targeted_search_text(self) -> None:
         question = "Unde vad taxele pentru camine?"
         analysis = analyze_query(question)
-        embedding_texts = retriever_module.build_query_embedding_texts(question, analysis)
+        embedding_texts = retrieval_service_module.build_query_embedding_texts(question, analysis)
 
         self.assertFalse(any("Structura anului universitar" in text for text in embedding_texts[1:]))
 
@@ -364,9 +493,13 @@ class RetrieverTests(unittest.TestCase):
         }
 
         with (
-            patch.object(retriever_module, "_retrieve_semantic_candidates", return_value=[semantic_hit]),
-            patch.object(retriever_module, "prepare_index", side_effect=AssertionError("Full JSON index should not be prepared")),
-            patch.object(retriever_module, "VECTOR_LEXICAL_BACKFILL_ENABLED", False),
+            patch.object(retrieval_service_module, "_retrieve_semantic_candidates", return_value=[semantic_hit]),
+            patch.object(
+                retrieval_service_module,
+                "prepare_index",
+                side_effect=AssertionError("Full JSON index should not be prepared"),
+            ),
+            patch.object(retrieval_service_module, "VECTOR_LEXICAL_BACKFILL_ENABLED", False),
         ):
             result = rank_vector_index("Unde gasesc orarul?", {"chunks": []}, "info", top_k=1)
 

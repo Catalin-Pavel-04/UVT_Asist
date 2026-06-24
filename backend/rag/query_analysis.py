@@ -1,35 +1,29 @@
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 from typing import Iterable
 
-from core.config import env_bool
+from core.config import env_bool, env_int
 from ollama_client import ask_ollama_json
 from rag.constants import (
-    CUMULATION_TERMS,
-    DOCUMENT_REQUEST_TERMS,
-    DOMAIN_VOCABULARY,
     INTENT_KEYWORDS,
     INTENT_PAGE_TYPES,
     OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS,
     OLLAMA_QUERY_ANALYSIS_TIMEOUT_SECONDS,
-    POLICY_DOCUMENT_TERMS,
-    SCHOLARSHIP_TERMS,
-    SOCIAL_CONTEXT_TERMS,
-    SUBMISSION_TERMS,
-    VOLUNTEERING_CREDIT_TERMS,
-    VOLUNTEERING_TERMS,
 )
 from rag.intent_detection import (
-    _has_housing_context,
     _is_housing_document_question,
     _is_social_document_question,
     _score_intents,
-    detect_intent,
-    detect_policy_question,
     is_volunteering_credit_query,
 )
-from rag.text_normalization import correct_query_terms, normalize, tokenize
+from rag.text_normalization import normalize, tokenize
+
+VALID_INTENTS = {"orar", "burse", "contact", "admitere", "regulamente", "studenti", "general"}
+QUERY_REWRITE_CACHE_TTL = env_int("QUERY_REWRITE_CACHE_TTL", "600", minimum=0, strict=False)
+_QUERY_REWRITE_CACHE: dict[str, tuple[float, dict]] = {}
+
 
 @dataclass(frozen=True)
 class QueryAnalysis:
@@ -42,9 +36,43 @@ class QueryAnalysis:
     is_policy_question: bool
     page_type_preferences: tuple[str, ...]
     corrections: tuple[str, ...]
+    keywords: tuple[str, ...]
+    faculty_hint: str
+    requires_clarification: bool
+    clarification_reason: str
+    rewrite_source: str
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def query_analysis_enabled() -> bool:
+    return env_bool("OLLAMA_QUERY_ANALYSIS_ENABLED", "true")
+
+
+def _technical_cache_key(question: str) -> str:
+    return normalize(question)[:1200]
+
+
+def _cached_rewrite(question: str) -> dict | None:
+    if QUERY_REWRITE_CACHE_TTL <= 0:
+        return None
+    cache_key = _technical_cache_key(question)
+    cached = _QUERY_REWRITE_CACHE.get(cache_key)
+    if not cached:
+        return None
+    expires_at, value = cached
+    if expires_at < time.time():
+        _QUERY_REWRITE_CACHE.pop(cache_key, None)
+        return None
+    return dict(value)
+
+
+def _store_cached_rewrite(question: str, value: dict) -> None:
+    if QUERY_REWRITE_CACHE_TTL <= 0:
+        return
+    cache_key = _technical_cache_key(question)
+    _QUERY_REWRITE_CACHE[cache_key] = (time.time() + QUERY_REWRITE_CACHE_TTL, dict(value))
 
 
 def build_page_type_preferences(intent: str, is_policy_question: bool, tokens: Iterable[str]) -> tuple[str, ...]:
@@ -66,144 +94,77 @@ def build_page_type_preferences(intent: str, is_policy_question: bool, tokens: I
 
 
 def expand_query_tokens(tokens: Iterable[str], intent: str, is_policy_question: bool) -> tuple[str, ...]:
+    """Add deterministic retrieval hints after Ollama has interpreted the query."""
     expanded = list(dict.fromkeys(tokens))
-    original_token_set = set(expanded)
-    synonyms = {
+    token_set = set(expanded)
+
+    intent_terms = {
         "orar": ("orar", "orare"),
         "burse": ("bursa", "burse", "burselor"),
         "contact": ("contact", "secretariat", "telefon", "email", "adresa"),
         "admitere": ("admitere", "inscriere", "candidat", "dosar"),
         "regulamente": ("regulament", "regulamente", "metodologie", "procedura", "anexa"),
-        "studenti": (
-            "student", "studenti", "studentweb", "cazare", "camin", "camine", "taxe",
-            "calendar", "structura", "universitar", "semestru", "sesiune", "vacante", "saptamani",
-        ),
+        "studenti": ("student", "studenti", "studentweb", "cazare", "camin", "camine", "taxe", "calendar"),
     }
 
-    for token in synonyms.get(intent, ()):
+    for token in intent_terms.get(intent, ()):
         if token not in expanded:
             expanded.append(token)
-
-    expanded_set = set(expanded)
-    if is_volunteering_credit_query(" ".join(expanded), expanded_set):
-        for token in (
-            "voluntariat",
-            "credite",
-            "transferabile",
-            "portofoliu",
-            "formular",
-            "raport",
-            "adeverinta",
-            "evaluare",
-            "recunoastere",
-        ):
-            if token not in expanded:
-                expanded.append(token)
-
-    if _is_housing_document_question(expanded_set):
-        for token in ("cazare", "camin", "camine", "documente", "justificativ", "social", "orfan", "monoparentala"):
-            if token not in expanded:
-                expanded.append(token)
-
-    if _is_social_document_question(expanded_set) and not _has_housing_context(expanded_set):
-        for token in (
-            "burse",
-            "bursa",
-            "social",
-            "sociale",
-            "sprijin",
-            "documente",
-            "justificativ",
-            "orfan",
-            "monoparentala",
-            "familie",
-            "venituri",
-        ):
-            if token not in expanded:
-                expanded.append(token)
 
     if is_policy_question:
         for token in ("regulament", "metodologie", "procedura", "anexa", "conditii", "eligibil"):
             if token not in expanded:
                 expanded.append(token)
-        social_document_question = _is_social_document_question(expanded)
-        explicit_cumulation_question = bool({"2", "cumulare", "beneficia"} & original_token_set)
-        if {"burse", "bursa"} & set(expanded) and (explicit_cumulation_question or not social_document_question):
-            for token in ("bursa", "burse", "burselor", "cumulare", "beneficia"):
-                if token not in expanded:
-                    expanded.append(token)
 
-    return tuple(expanded)
+    if is_volunteering_credit_query(" ".join(expanded), set(expanded)):
+        for token in ("voluntariat", "credite", "portofoliu", "formular", "raport", "adeverinta"):
+            if token not in expanded:
+                expanded.append(token)
+
+    if _is_housing_document_question(token_set):
+        for token in ("cazare", "camin", "camine", "documente", "justificativ", "social"):
+            if token not in expanded:
+                expanded.append(token)
+
+    if _is_social_document_question(token_set) and not _is_housing_document_question(token_set):
+        for token in ("burse", "bursa", "social", "documente", "justificativ", "venituri"):
+            if token not in expanded:
+                expanded.append(token)
+
+    return tuple(dict.fromkeys(expanded))
 
 
 def analyze_query_deterministic(question: str) -> QueryAnalysis:
-    normalized_question = normalize(question)
-    corrected_question, corrections = correct_query_terms(question)
-    intent = detect_intent(corrected_question)
-    is_policy_question = detect_policy_question(corrected_question, intent)
-    tokens = tuple(tokenize(corrected_question))
-    page_type_preferences = build_page_type_preferences(intent, is_policy_question, tokens)
-    expanded_tokens = expand_query_tokens(tokens, intent, is_policy_question)
+    return raw_fallback_query_analysis(question)
 
+
+def raw_fallback_query_analysis(question: str) -> QueryAnalysis:
+    normalized_question = normalize(question)
+    tokens = tuple(tokenize(normalized_question))
+    page_type_preferences = build_page_type_preferences("general", False, tokens)
     return QueryAnalysis(
         original_question=question,
         normalized_question=normalized_question,
-        corrected_question=corrected_question,
+        corrected_question=normalized_question,
         tokens=tokens,
-        expanded_tokens=expanded_tokens,
-        intent=intent,
-        is_policy_question=is_policy_question,
+        expanded_tokens=tokens,
+        intent="general",
+        is_policy_question=False,
         page_type_preferences=page_type_preferences,
-        corrections=tuple(corrections),
+        corrections=(),
+        keywords=tokens[:OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS],
+        faculty_hint="",
+        requires_clarification=False,
+        clarification_reason="",
+        rewrite_source="raw_fallback",
     )
 
 
-def query_analysis_enabled() -> bool:
-    return env_bool("OLLAMA_QUERY_ANALYSIS_ENABLED", "false")
+def _query_analysis_allowed_token(token: str, original_tokens: set[str] | None = None) -> bool:
+    return bool(token and len(token) <= 48)
 
 
-def _query_analysis_allowed_token(token: str, original_tokens: set[str]) -> bool:
-    if token.isdigit() or token in original_tokens:
-        return True
-
-    if original_tokens & set(VOLUNTEERING_TERMS + VOLUNTEERING_CREDIT_TERMS):
-        allowed = set(VOLUNTEERING_TERMS + VOLUNTEERING_CREDIT_TERMS + SUBMISSION_TERMS + POLICY_DOCUMENT_TERMS)
-        allowed.update({"raport", "adeverinta", "evaluare", "recunoastere"})
-        return token in allowed
-
-    if original_tokens & set(SCHOLARSHIP_TERMS + CUMULATION_TERMS):
-        allowed = set(SCHOLARSHIP_TERMS + CUMULATION_TERMS + POLICY_DOCUMENT_TERMS)
-        allowed.update({"conditii", "eligibil", "beneficia", "student", "studenti"})
-        return token in allowed
-
-    if original_tokens & {"admitere", "inscriere", "candidat"}:
-        return token in {"admitere", "inscriere", "candidat", "dosar", "taxa", "taxe", "program"}
-
-    if original_tokens & {"orar", "orare"}:
-        return token in {"orar", "orare", "program"}
-
-    if original_tokens & {"contact", "secretariat"}:
-        return token in {"contact", "secretariat", "telefon", "email", "adresa", "program"}
-
-    if original_tokens & {"cazare", "camin", "camine"}:
-        return token in {
-            "cazare", "camin", "camine", "student", "studenti", "conditii", "eligibil",
-            "documente", "acte", "dosar", "orfan", "orfani", "monoparentala", "social",
-            "justificativ", "venituri",
-        }
-
-    if _is_social_document_question(original_tokens):
-        allowed = set(SOCIAL_CONTEXT_TERMS + DOCUMENT_REQUEST_TERMS + SCHOLARSHIP_TERMS + POLICY_DOCUMENT_TERMS)
-        allowed.update({"sprijin", "conditii", "eligibil", "student", "studenti"})
-        return token in allowed
-
-    if original_tokens & {"regulament", "regulamente", "metodologie", "procedura", "proceduri"}:
-        return token in DOMAIN_VOCABULARY
-
-    return False
-
-
-def _validated_query_analysis_tokens(values, original_tokens: set[str]) -> list[str]:
+def _validated_query_analysis_tokens(values, original_tokens: set[str] | None = None) -> list[str]:
     if isinstance(values, str):
         values = [values]
     if not isinstance(values, list):
@@ -226,134 +187,164 @@ def _validated_query_analysis_intents(values) -> set[str]:
         values = [values]
     if not isinstance(values, list):
         return set()
-
-    allowed_intents = set(INTENT_KEYWORDS) | {"general"}
-    return {
-        normalize(str(value))
-        for value in values
-        if normalize(str(value)) in allowed_intents
-    }
+    return {normalize(str(value)) for value in values if normalize(str(value)) in VALID_INTENTS}
 
 
 def _validated_corrected_question(value, base: QueryAnalysis) -> str:
     corrected = normalize(str(value or "")).strip()
-    if len(corrected) < 3 or len(corrected) > 260:
+    if len(corrected) < 2 or len(corrected) > 260:
         return base.corrected_question
-
-    original_tokens = set(base.tokens)
-    corrected_tokens = set(tokenize(corrected))
-    if corrected_tokens and corrected_tokens & original_tokens:
-        return corrected
-    return base.corrected_question
+    return corrected
 
 
-def _build_ollama_query_analysis_prompt(question: str, base: QueryAnalysis) -> tuple[str, str]:
+def _validated_bool(value) -> bool:
+    return value is True
+
+
+def _validated_text(value, max_chars: int = 220) -> str:
+    return normalize(str(value or "")).strip()[:max_chars]
+
+
+def _validated_ollama_payload(value) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+
+    intent = normalize(str(value.get("intent") or "general"))
+    if intent not in VALID_INTENTS:
+        intent = "general"
+
+    keywords_raw = value.get("keywords")
+    if isinstance(keywords_raw, str):
+        keywords_raw = [keywords_raw]
+    if not isinstance(keywords_raw, list):
+        keywords_raw = []
+
+    return {
+        "corrected_question": str(value.get("corrected_question") or ""),
+        "intent": intent,
+        "is_policy_question": value.get("is_policy_question") is True,
+        "keywords": [str(item) for item in keywords_raw[:OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS]],
+        "faculty_hint": str(value.get("faculty_hint") or ""),
+        "requires_clarification": value.get("requires_clarification") is True,
+        "clarification_reason": str(value.get("clarification_reason") or ""),
+    }
+
+
+def _build_ollama_query_analysis_prompt(question: str, base: QueryAnalysis | None = None) -> tuple[str, str]:
     system_prompt = (
-        "Esti un modul local de intelegere a intrebarilor pentru un asistent UVT. "
-        "Nu raspunde la intrebare si nu alege surse. Returneaza exclusiv JSON valid."
+        "Esti un modul local de analiza lingvistica pentru un asistent UVT. "
+        "Nu raspunde la intrebare. Nu alege surse. Nu inventa informatii administrative. "
+        "Returneaza exclusiv JSON valid, fara markdown."
     )
     user_prompt = f"""
-Analizeaza intrebarea unui student UVT si returneaza doar acest JSON:
+Analizeaza intrebarea si returneaza exclusiv un obiect JSON cu schema:
 {{
-  "corrected_question": "intrebarea corectata scurt, in romana fara diacritice obligatorii",
-  "intent": "una dintre: orar, burse, contact, admitere, regulamente, studenti, general",
+  "corrected_question": "string",
+  "intent": "orar|burse|contact|admitere|regulamente|studenti|general",
   "is_policy_question": true,
-  "keywords": ["termeni UVT relevanti pentru cautare"],
-  "exclude_intents": ["intentii care nu se potrivesc"]
+  "keywords": ["string"],
+  "faculty_hint": "string",
+  "requires_clarification": false,
+  "clarification_reason": "string"
 }}
 
 Reguli:
-- Nu introduce informatii care nu sunt sustinute de intrebare.
-- Keywords trebuie sa fie substantive/termeni scurti utili pentru cautare, nu propozitii.
-- Daca apar "credite" si "voluntariat", prefera intent regulamente/studenti, nu admitere.
-- Daca "dosar" apare fara context de admitere/candidat/inscriere, nu presupune admitere.
-- Pentru reguli, conditii, cumul, metodologii, proceduri, portofolii sau documente, marcheaza is_policy_question true.
+- Nu raspunde la intrebare.
+- Nu alege surse, URL-uri sau pagini.
+- Nu schimba sensul intrebarii.
+- Corecteaza typo-uri, abrevieri si formulari neclare doar la nivel de intrebare.
+- Pentru "info", "fmi", "fac de info", "informatica", seteaza faculty_hint="info".
+- Pentru "program", daca nu este clar daca inseamna orar, secretariat sau program de studii,
+  seteaza requires_clarification=true.
+- Pentru burse, cumul, regulamente, metodologii, proceduri, dosare sau acte,
+  marcheaza is_policy_question=true.
+- Pentru intrebari vagi, seteaza requires_clarification=true si explica scurt de ce.
+- Keywords trebuie sa fie termeni scurti utili pentru cautare, fara propozitii.
 
-Intrebare originala: {question}
-Analiza deterministica existenta:
-{base.to_dict()}
+Exemple de comportament:
+- "unde gasesc orrarul la info" => corrected_question include "orar", intent="orar", faculty_hint="info".
+- "secreteriat info" => corrected_question include "secretariat", intent="contact", faculty_hint="info".
+- "pot primi doua burse?" => intent="regulamente", is_policy_question=true, keywords include "burse" si "cumulare".
+- "program" => requires_clarification=true.
+
+Intrebare originala:
+{question}
 """.strip()
     return system_prompt, user_prompt
 
 
-def request_ollama_query_analysis(question: str, base: QueryAnalysis) -> dict | None:
+def request_ollama_query_analysis(question: str, base: QueryAnalysis | None = None) -> dict | None:
+    cached = _cached_rewrite(question)
+    if cached is not None:
+        return cached
+
     system_prompt, user_prompt = _build_ollama_query_analysis_prompt(question, base)
     try:
-        return ask_ollama_json(
+        suggestion = ask_ollama_json(
             system_prompt,
             user_prompt,
             timeout_seconds=OLLAMA_QUERY_ANALYSIS_TIMEOUT_SECONDS,
-            num_predict=220,
+            num_predict=260,
         )
     except Exception:
         return None
+
+    validated = _validated_ollama_payload(suggestion)
+    if validated is not None:
+        _store_cached_rewrite(question, validated)
+    return validated
 
 
 def merge_ollama_query_analysis(question: str, base: QueryAnalysis, suggestion: dict | None) -> QueryAnalysis:
     if not isinstance(suggestion, dict):
         return base
 
-    original_tokens = set(base.tokens)
     corrected_question = _validated_corrected_question(suggestion.get("corrected_question"), base)
     tokens = tuple(tokenize(corrected_question)) or base.tokens
-    keyword_tokens = _validated_query_analysis_tokens(suggestion.get("keywords"), original_tokens | set(tokens))
-    excluded_intents = _validated_query_analysis_intents(suggestion.get("exclude_intents"))
+    keywords = tuple(_validated_query_analysis_tokens(suggestion.get("keywords"), set(tokens)))
 
-    intent_text = normalize(str(suggestion.get("intent") or ""))
-    allowed_intents = set(INTENT_KEYWORDS) | {"general"}
-    candidate_tokens = list(dict.fromkeys([*tokens, *keyword_tokens]))
-    candidate_text = " ".join([corrected_question, *candidate_tokens])
-    scores = _score_intents(candidate_text, candidate_tokens)
-    for excluded in excluded_intents:
-        if excluded in scores:
-            scores[excluded] -= 100
+    intent = normalize(str(suggestion.get("intent") or "general"))
+    if intent not in VALID_INTENTS:
+        intent = "general"
 
-    best_intent = max(scores, key=scores.get)
-    intent = best_intent if scores[best_intent] > 0 else base.intent
-    if intent_text in allowed_intents and intent_text not in excluded_intents:
-        suggested_score = scores.get(intent_text, 0)
-        current_score = scores.get(intent, 0)
-        if suggested_score >= max(1, current_score - 2):
-            intent = intent_text
+    is_policy_question = _validated_bool(suggestion.get("is_policy_question"))
+    original_tokens = tuple(tokenize(base.original_question))
+    combined_tokens = tuple(dict.fromkeys([*tokens, *keywords, *original_tokens]))
+    page_type_preferences = build_page_type_preferences(intent, is_policy_question, combined_tokens)
+    expanded_tokens = expand_query_tokens(combined_tokens, intent, is_policy_question)
+    faculty_hint = _validated_text(suggestion.get("faculty_hint"), 48)
+    requires_clarification = _validated_bool(suggestion.get("requires_clarification"))
+    clarification_reason = _validated_text(suggestion.get("clarification_reason"), 240)
 
-    suggested_policy = suggestion.get("is_policy_question")
-    is_policy_question = bool(
-        base.is_policy_question
-        or detect_policy_question(candidate_text, intent)
-        or (suggested_policy is True and (
-            intent == "regulamente"
-            or bool({"regulament", "metodologie", "procedura", "conditii", "eligibil", "portofoliu"} & set(candidate_tokens))
-        ))
-    )
-    page_type_preferences = build_page_type_preferences(intent, is_policy_question, tokens)
-    expanded_tokens = list(expand_query_tokens(tokens, intent, is_policy_question))
-    for token in keyword_tokens:
-        if token not in expanded_tokens:
-            expanded_tokens.append(token)
-
-    corrections = list(base.corrections)
+    corrections: list[str] = []
     if corrected_question != base.corrected_question:
         corrections.append("ollama_query_rewrite")
-    if keyword_tokens:
+    if keywords:
         corrections.append("ollama_keywords")
-    if excluded_intents:
-        corrections.append("ollama_excluded:" + ",".join(sorted(excluded_intents)))
+    if requires_clarification:
+        corrections.append("ollama_clarification")
 
     return QueryAnalysis(
         original_question=question,
-        normalized_question=normalize(question),
+        normalized_question=base.normalized_question,
         corrected_question=corrected_question,
         tokens=tokens,
-        expanded_tokens=tuple(dict.fromkeys(expanded_tokens)),
+        expanded_tokens=expanded_tokens,
         intent=intent,
         is_policy_question=is_policy_question,
         page_type_preferences=page_type_preferences,
-        corrections=tuple(dict.fromkeys(corrections)),
+        corrections=tuple(corrections),
+        keywords=keywords,
+        faculty_hint=faculty_hint,
+        requires_clarification=requires_clarification,
+        clarification_reason=clarification_reason,
+        rewrite_source="ollama",
     )
 
 
 def analyze_query(question: str) -> QueryAnalysis:
-    base = analyze_query_deterministic(question)
+    base = raw_fallback_query_analysis(question)
     if not query_analysis_enabled():
         return base
-    return merge_ollama_query_analysis(question, base, request_ollama_query_analysis(question, base))
+    suggestion = request_ollama_query_analysis(question, base)
+    return merge_ollama_query_analysis(question, base, suggestion)

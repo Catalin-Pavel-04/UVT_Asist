@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from core.config import MAX_QUESTION_CHARS
-from retriever import normalize as normalize_retrieval_text
+from rag.text_normalization import normalize as normalize_retrieval_text
 from services.chat_models import ChatRequest, GENERAL_FACULTY_ID
 
 MAX_HISTORY_MESSAGES = 10

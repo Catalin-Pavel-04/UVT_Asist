@@ -16,7 +16,7 @@ from core.config import (
 )
 from ollama_client import get_ollama_status
 from page_index import get_index_status
-from retriever import query_analysis_enabled
+from rag.query_analysis import query_analysis_enabled
 from services.chat_service import get_response_cache_size
 from services.indexing_service import get_indexing_state
 from site_cache import get_cache_status

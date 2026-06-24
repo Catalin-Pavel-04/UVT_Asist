@@ -261,8 +261,8 @@ def max_chunks_per_url_for_analysis(analysis: QueryAnalysis) -> int:
 
 def build_query_embedding_text(question: str, analysis: QueryAnalysis) -> str:
     return (
-        f"Intrebare student: {question}\n"
-        f"Intrebare normalizata: {analysis.corrected_question}\n"
+        f"Intrebare student corectata: {analysis.corrected_question}\n"
+        f"Intrebare originala: {analysis.original_question or question}\n"
         f"Intent: {analysis.intent}\n"
         f"Intrebare de regulament/metodologie: {analysis.is_policy_question}\n"
         f"Termeni importanti: {' '.join(analysis.expanded_tokens)}"

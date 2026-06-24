@@ -15,8 +15,14 @@ def test_detect_faculty_id_from_url_host() -> None:
     assert detect_faculty_id("https://unknown.uvt.ro/pagina", FACULTIES) == "uvt"
 
 
-def test_infer_faculty_from_question_alias() -> None:
+def test_infer_faculty_does_not_guess_from_question_alias_without_ollama_hint() -> None:
     faculty = infer_faculty("uvt", "Unde gasesc orarul la info?", [])
+
+    assert faculty["id"] == "uvt"
+
+
+def test_infer_faculty_from_ollama_faculty_hint() -> None:
+    faculty = infer_faculty("uvt", "Unde gasesc orarul la info?", [], analysis={"faculty_hint": "info"})
 
     assert faculty["id"] == "info"
 

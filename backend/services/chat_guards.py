@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from retriever import normalize as normalize_retrieval_text
+from rag.text_normalization import normalize as normalize_retrieval_text
 from services.chat_models import GENERAL_FACULTY_ID, ChatRequest, get_faculty
 from services.chat_request_parser import normalize_match_text
 from services.indexing_service import get_indexing_state
@@ -141,6 +141,45 @@ def vague_question_payload(chat_request: ChatRequest) -> dict:
             "policy_question": False,
             "normalized_question": normalize_retrieval_text(chat_request.question),
             "corrections": [],
+        },
+        "retrieval_backend": "clarification",
+        "generation_mode": "none",
+        "generation_error": "",
+        "evidence": {
+            "answerable": False,
+            "support_level": "low",
+            "source_count": 0,
+            "verified_source_count": 0,
+            "live_verified": False,
+            "top_source": None,
+        },
+    }
+
+
+def query_analysis_clarification_payload(chat_request: ChatRequest, analysis) -> dict:
+    faculty = get_faculty(chat_request.requested_faculty_id)
+    reason = str(getattr(analysis, "clarification_reason", "") or "").strip()
+    answer = (
+        "Am nevoie de o clarificare pentru a selecta sursa oficiala corecta. "
+        "Precizeaza tema exacta, de exemplu orar, program secretariat, program de studii, admitere, burse sau regulamente."
+    )
+    if reason:
+        answer = f"{answer} Motiv: {reason}."
+
+    return {
+        "answer": answer,
+        "sources": [],
+        "matched_faculty": faculty["name"],
+        "matched_faculty_id": faculty["id"],
+        "confidence": "low",
+        "confidence_score": 25,
+        "confidence_reason": reason or "Ollama query analysis a marcat intrebarea ca necesitand clarificare.",
+        "live_verified": False,
+        "query_profile": {
+            "intent": getattr(analysis, "intent", "clarification") or "clarification",
+            "policy_question": bool(getattr(analysis, "is_policy_question", False)),
+            "normalized_question": getattr(analysis, "corrected_question", "") or normalize_retrieval_text(chat_request.question),
+            "corrections": list(getattr(analysis, "corrections", ()) or ()),
         },
         "retrieval_backend": "clarification",
         "generation_mode": "none",

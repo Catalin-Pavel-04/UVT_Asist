@@ -2,7 +2,7 @@
 
 UVT_Asist is a bachelor thesis project that answers student questions using official pages from the West University of Timisoara. The product runs as a Chrome extension popup backed by a local Flask API. All AI components run locally: Ollama generates answers, Ollama creates embeddings, and Qdrant stores the vector index.
 
-The system is designed as local-index-first RAG. Official UVT and faculty pages are crawled into chunks, embedded locally, stored in Qdrant with metadata, retrieved semantically with faculty and page-type filters, reranked with deterministic Romanian query heuristics, optionally live-verified, and then passed to a local Ollama generation model.
+The system is designed as local-index-first RAG. Official UVT and faculty pages are crawled into chunks, embedded locally, stored in Qdrant with metadata, analyzed through a local Ollama JSON query rewrite, retrieved semantically with faculty and page-type filters, reranked deterministically, optionally live-verified, and then passed to a local Ollama generation model.
 
 ## Architecture
 
@@ -80,11 +80,11 @@ Default models are configured in `backend/.env`:
 ```env
 OLLAMA_GENERATION_MODEL=qwen3:4b
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_QUERY_ANALYSIS_ENABLED=false
+OLLAMA_QUERY_ANALYSIS_ENABLED=true
 ```
 
 You can switch models by changing those two variables and rebuilding the vector index when the embedding model changes.
-When `OLLAMA_QUERY_ANALYSIS_ENABLED=true`, the backend first asks Ollama for a short JSON query rewrite, intent, and keyword hints. Those hints are sanitized against the UVT vocabulary and only influence retrieval; deterministic Qdrant search and reranking still choose the final sources.
+When `OLLAMA_QUERY_ANALYSIS_ENABLED=true`, the backend first asks Ollama for a JSON-only query rewrite, intent, keyword hints, optional faculty hint, and clarification flag. The backend validates the JSON structure and uses it only to guide retrieval. Qdrant search plus deterministic reranking still choose the final sources; Ollama does not select URLs. If query analysis fails, the backend falls back to the original technically normalized question without hardcoded typo correction.
 
 ## Demo rapid
 
@@ -381,11 +381,11 @@ The popup backend URL can be configured from the extension options page; it rema
 
 ## How RAG Works
 
-1. Normalize Romanian text and common student typos.
-2. Optionally ask Ollama for a JSON-only query rewrite and keyword expansion, then validate every term locally.
-3. Detect intent: `orar`, `contact`, `burse`, `admitere`, `regulamente`, `studenti`, or `general`.
-4. Detect policy/regulation-style questions.
-5. Embed the normalized query with Ollama.
+1. Apply minimal technical normalization for comparison and tokenization.
+2. Ask local Ollama for JSON-only query analysis: corrected question, intent, policy flag, keywords, faculty hint, and clarification flag.
+3. Validate the JSON shape and allowed intent/faculty values; Ollama must not answer the question or choose sources.
+4. If Ollama is unavailable, continue with the original technically normalized question as `raw_fallback`, without semantic typo correction.
+5. Embed the Ollama-corrected query with Ollama embeddings, while retaining original-question tokens for lexical/reranking signals.
 6. Search Qdrant with metadata filters for `faculty_id` and `page_type`.
 7. Retrieve semantic candidates from the local vector collection.
 8. Rerank candidates with deterministic boosts for exact title, URL, faculty, page type, policy, and lexical signals.
@@ -476,7 +476,7 @@ Expected behavior:
 
 ## Validation
 
-Run fast automated tests after backend, retriever, index-schema, or API contract changes:
+Run fast automated tests after backend, RAG/retrieval, index-schema, or API contract changes:
 
 ```powershell
 python -m pytest
@@ -492,13 +492,13 @@ Before a thesis demo, after starting Ollama and Qdrant, run the full local check
 .\scripts\final_check.ps1 -FullStack
 ```
 
-Run retrieval smoke tests after index, retriever, embedding, or Qdrant changes:
+Run retrieval smoke tests after index, RAG/retrieval, embedding, or Qdrant changes:
 
 ```powershell
 python backend\scripts\smoke_retrieval.py
 ```
 
-The smoke test is expected to fail if Ollama is not running, because query embeddings cannot be created and the retriever correctly falls back to local JSON lexical ranking instead of reporting Qdrant success.
+The smoke test is expected to fail if Ollama is not running, because query embeddings cannot be created and the retrieval layer correctly falls back to local JSON lexical ranking instead of reporting Qdrant success.
 
 Run backend health after backend changes:
 

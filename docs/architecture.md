@@ -10,7 +10,8 @@ Aplicatia este proiectata local-first: indexul, embeddings, baza vectoriala si g
 flowchart LR
     A[Student] --> B[Chrome extension]
     B --> C[Flask API]
-    C --> D[Retriever]
+    C --> Q[Ollama query analysis JSON]
+    Q --> D[Retriever]
     D --> E[Qdrant vector store]
     D --> F[Ollama embeddings]
     D --> G[Surse oficiale UVT]
@@ -77,7 +78,11 @@ Qdrant poate rula ca serviciu Docker local sau prin stocare locala Qdrant Client
 
 ### Retrieval semantic
 
-Fluxul de retrieval normalizeaza intrebarea, corecteaza typo-uri uzuale, detecteaza intentia si intrebarile de tip regulament/metodologie. Apoi backendul construieste una sau mai multe variante de query embedding si cauta candidati in Qdrant.
+Fluxul de retrieval incepe cu normalizare tehnica minima: lowercase, eliminare diacritice pentru comparatii, compactare spatii si tokenizare. Corectarea semantica, reformularea intrebarilor, detectarea intentiei, cuvintele cheie si indiciul de facultate sunt cerute de la Ollama intr-un raspuns exclusiv JSON.
+
+Backendul valideaza JSON-ul primit de la Ollama, dar nu ii permite modelului sa raspunda la intrebare sau sa aleaga surse. Daca Ollama nu raspunde sau JSON-ul nu este valid, sistemul continua cu intrebarea originala normalizata tehnic, cu `rewrite_source="raw_fallback"`, fara corectare semantica hardcodata.
+
+Apoi backendul construieste una sau mai multe variante de query embedding folosind intrebarea corectata de Ollama, pastreaza termenii originali pentru semnale lexicale si cauta candidati in Qdrant.
 
 Intentiile principale sunt:
 

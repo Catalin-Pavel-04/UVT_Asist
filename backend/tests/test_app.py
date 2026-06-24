@@ -10,18 +10,23 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-import app as app_module
+import services.chat_cache as chat_cache_module
+import services.chat_service as chat_service_module
+import services.feedback_service as feedback_service_module
+import services.indexing_service as indexing_service_module
+from app import create_app
 
 
 class AppTests(unittest.TestCase):
     def setUp(self) -> None:
-        app_module.app.config.update(TESTING=True)
-        app_module.RESPONSE_CACHE.clear()
-        self.client = app_module.app.test_client()
+        self.flask_app = create_app()
+        self.flask_app.config.update(TESTING=True)
+        chat_cache_module.RESPONSE_CACHE.clear()
+        self.client = self.flask_app.test_client()
 
     def test_generation_skips_only_when_no_chunks_exist(self) -> None:
-        self.assertTrue(app_module.should_skip_generation({"chunks": []}))
-        self.assertFalse(app_module.should_skip_generation({
+        self.assertTrue(chat_service_module.should_skip_generation({"chunks": []}))
+        self.assertFalse(chat_service_module.should_skip_generation({
             "chunks": [{"url": "https://uvt.ro", "chunk_text": "Fragment oficial."}],
             "confidence": "low",
             "confidence_score": 10,
@@ -53,10 +58,10 @@ class AppTests(unittest.TestCase):
         }
 
         with (
-            patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
-            patch.object(app_module, "get_vector_index_status", return_value={"points_count": 0}),
-            patch.object(app_module, "rank_index", return_value=retrieval_result),
-            patch.object(app_module, "ask_ollama_json", side_effect=AssertionError("LLM should not be called")),
+            patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 0}),
+            patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
+            patch.object(chat_service_module, "ask_ollama_json", side_effect=AssertionError("LLM should not be called")),
         ):
             response = self.client.post(
                 "/chat",
@@ -98,12 +103,12 @@ class AppTests(unittest.TestCase):
         }
 
         with (
-            patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
-            patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
-            patch.object(app_module, "rank_index", return_value=retrieval_result),
-            patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
+            patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
+            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
             patch.object(
-                app_module,
+                chat_service_module,
                 "ask_ollama_json",
                 return_value={"answer": "Sursele recuperate sunt prea generale pentru un raspuns sigur."},
             ) as ask_ollama,
@@ -119,11 +124,11 @@ class AppTests(unittest.TestCase):
     def test_central_uvt_contact_does_not_require_faculty_clarification(self) -> None:
         faculty = {"id": "uvt", "name": "UVT"}
 
-        self.assertFalse(app_module.needs_faculty_clarification(
+        self.assertFalse(chat_service_module.needs_faculty_clarification(
             faculty,
             {"analysis": {"intent": "contact", "corrected_question": "unde gasesc datele de contact uvt"}},
         ))
-        self.assertTrue(app_module.needs_faculty_clarification(
+        self.assertTrue(chat_service_module.needs_faculty_clarification(
             faculty,
             {"analysis": {"intent": "contact", "corrected_question": "unde gasesc secretariatul"}},
         ))
@@ -157,8 +162,8 @@ class AppTests(unittest.TestCase):
             "chunk_text": "Pagina oficiala de contact a Universitatii de Vest din Timisoara.",
         }
 
-        with patch.object(app_module, "load_index", return_value={"chunks": [contact_chunk]}):
-            result = app_module.ensure_canonical_uvt_contact_source(
+        with patch.object(chat_service_module, "load_index", return_value={"chunks": [contact_chunk]}):
+            result = chat_service_module.ensure_canonical_uvt_contact_source(
                 "Unde gasesc datele de contact UVT?",
                 {"id": "uvt", "name": "UVT"},
                 retrieval_result,
@@ -168,7 +173,7 @@ class AppTests(unittest.TestCase):
         self.assertIn("canonical_contact", result["chunks"][0]["match_signals"])
 
     def test_housing_calendar_navigation_topic_stays_housing(self) -> None:
-        topic = app_module.source_navigation_topic(
+        topic = chat_service_module.source_navigation_topic(
             "Unde gasesc calendarul procesului de cazare?",
             {"analysis": {"intent": "studenti"}},
         )
@@ -176,7 +181,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(topic, "cazare")
 
     def test_housing_social_navigation_topic_mentions_social_criteria(self) -> None:
-        topic = app_module.source_navigation_topic(
+        topic = chat_service_module.source_navigation_topic(
             "Unde verific criteriile sociale pentru cazare?",
             {"analysis": {"intent": "studenti"}},
         )
@@ -190,17 +195,17 @@ class AppTests(unittest.TestCase):
             "confidence": "high",
         }
 
-        self.assertTrue(app_module.should_use_source_navigation_answer(
+        self.assertTrue(chat_service_module.should_use_source_navigation_answer(
             "Ce document oficial explica procedurile pentru studenti?",
             retrieval_result,
         ))
-        self.assertTrue(app_module.should_use_source_navigation_answer(
+        self.assertTrue(chat_service_module.should_use_source_navigation_answer(
             "Unde gasesc metodologia de finalizare a studiilor?",
             retrieval_result,
         ))
 
     def test_policy_navigation_topic_mentions_regulations(self) -> None:
-        topic = app_module.source_navigation_topic(
+        topic = chat_service_module.source_navigation_topic(
             "Unde sunt publicate hotararile sau regulamentele UVT?",
             {"analysis": {"intent": "regulamente"}},
         )
@@ -236,7 +241,7 @@ class AppTests(unittest.TestCase):
             "retrieval_backend": "qdrant",
         }
 
-        answer = app_module.build_local_fallback_answer(retrieval_result)
+        answer = chat_service_module.build_local_fallback_answer(retrieval_result)
 
         self.assertIn("analiza informatiei este rezervata pentru Ollama", answer)
         self.assertIn("\"Burse - Facultatea de Informatica\" - https://info.uvt.ro/burse", answer)
@@ -268,7 +273,7 @@ class AppTests(unittest.TestCase):
             "retrieval_backend": "qdrant",
         }
 
-        answer = app_module.build_local_fallback_answer(retrieval_result)
+        answer = chat_service_module.build_local_fallback_answer(retrieval_result)
 
         self.assertIn("Backend-ul a gasit doar dovezi partiale", answer)
         self.assertIn("\"Pagina generala UVT\" - https://uvt.ro/", answer)
@@ -302,11 +307,15 @@ class AppTests(unittest.TestCase):
         }
 
         with (
-            patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
-            patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
-            patch.object(app_module, "rank_index", return_value=retrieval_result),
-            patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
-            patch.object(app_module, "ask_ollama_json", side_effect=AssertionError("Navigation answer should be local")),
+            patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
+            patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
+            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(
+                chat_service_module,
+                "ask_ollama_json",
+                side_effect=AssertionError("Navigation answer should be local"),
+            ),
         ):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
 
@@ -319,7 +328,11 @@ class AppTests(unittest.TestCase):
         self.assertIn("https://info.uvt.ro/orare", payload["answer"])
 
     def test_unsupported_future_or_personal_question_skips_retrieval(self) -> None:
-        with patch.object(app_module, "rank_index", side_effect=AssertionError("Unsupported question should not retrieve")):
+        with patch.object(
+            chat_service_module,
+            "rank_index",
+            side_effect=AssertionError("Unsupported question should not retrieve"),
+        ):
             for question in (
                 "Care va fi media minima de admitere de anul viitor?",
                 "Ce bursa voi primi personal luna viitoare?",
@@ -366,12 +379,12 @@ class AppTests(unittest.TestCase):
         }
 
         with (
-            patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
-            patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
-            patch.object(app_module, "rank_index", return_value=retrieval_result),
-            patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
+            patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
+            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
             patch.object(
-                app_module,
+                chat_service_module,
                 "ask_ollama_json",
                 side_effect=[
                     {"answer": "According to Source 1, orarul este disponibil in retrieved context."},
@@ -428,12 +441,12 @@ class AppTests(unittest.TestCase):
         }
 
         with (
-            patch.object(app_module, "load_index", return_value={"built_at": "test", "chunks": []}),
-            patch.object(app_module, "get_vector_index_status", return_value={"points_count": 1}),
-            patch.object(app_module, "rank_index", return_value=retrieval_result),
-            patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
+            patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
+            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
             patch.object(
-                app_module,
+                chat_service_module,
                 "ask_ollama_json",
                 return_value=(
                     {
@@ -466,10 +479,10 @@ class AppTests(unittest.TestCase):
         }
 
         with (
-            patch.object(app_module, "LIVE_VERIFY_ENABLED", False),
-            patch.object(app_module, "verify_pages", side_effect=AssertionError("Live fetch should not be called")),
+            patch.object(chat_service_module, "LIVE_VERIFY_ENABLED", False),
+            patch.object(chat_service_module, "verify_pages", side_effect=AssertionError("Live fetch should not be called")),
         ):
-            chunks, verified = app_module.live_verify_retrieval("orar", "info", retrieval_result, {"chunks": []})
+            chunks, verified = chat_service_module.live_verify_retrieval("orar", "info", retrieval_result, {"chunks": []})
 
         self.assertEqual(chunks, retrieval_result["chunks"])
         self.assertFalse(verified)
@@ -480,8 +493,13 @@ class AppTests(unittest.TestCase):
             "chunks": [{"url": "https://uvt.ro/metodologie-burse.pdf", "chunk_text": "Burse"}],
         }
 
-        with patch.object(app_module, "verify_pages", return_value=[]) as verify_pages:
-            chunks, verified = app_module.live_verify_retrieval("ce acte trebuie", "uvt", retrieval_result, {"chunks": []})
+        with patch.object(chat_service_module, "verify_pages", return_value=[]) as verify_pages:
+            chunks, verified = chat_service_module.live_verify_retrieval(
+                "ce acte trebuie",
+                "uvt",
+                retrieval_result,
+                {"chunks": []},
+            )
 
         self.assertEqual(chunks, retrieval_result["chunks"])
         self.assertFalse(verified)
@@ -509,7 +527,7 @@ class AppTests(unittest.TestCase):
             },
         ]
 
-        merged = app_module.merge_ranked_chunks(primary_chunks, verified_chunks)
+        merged = chat_service_module.merge_ranked_chunks(primary_chunks, verified_chunks)
 
         self.assertEqual(len(merged), 2)
         self.assertEqual([chunk["chunk_text"] for chunk in merged], ["documentele necesare", "certificat de divort"])
@@ -544,17 +562,21 @@ class AppTests(unittest.TestCase):
         }
 
         with (
-            patch.object(app_module, "get_vector_index_status", return_value={"available": True, "points_count": 211506}),
-            patch.object(app_module, "get_index_status", return_value={
+            patch.object(
+                chat_service_module,
+                "get_vector_index_status",
+                return_value={"available": True, "points_count": 211506},
+            ),
+            patch.object(chat_service_module, "get_index_status", return_value={
                 "schema_version": 2,
                 "built_at": "test",
                 "page_count": 29442,
                 "chunk_count": 211506,
             }),
-            patch.object(app_module, "load_index", side_effect=AssertionError("Full JSON should not be loaded")),
-            patch.object(app_module, "rank_index", return_value=retrieval_result),
-            patch.object(app_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
-            patch.object(app_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
+            patch.object(chat_service_module, "load_index", side_effect=AssertionError("Full JSON should not be loaded")),
+            patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
+            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
+            patch.object(chat_service_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
         ):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
 
@@ -605,18 +627,18 @@ class AppTests(unittest.TestCase):
         }
 
         with (
-            patch.object(app_module, "get_vector_index_status", return_value={"available": True, "points_count": 1}),
-            patch.object(app_module, "get_index_status", return_value={
+            patch.object(chat_service_module, "get_vector_index_status", return_value={"available": True, "points_count": 1}),
+            patch.object(chat_service_module, "get_index_status", return_value={
                 "schema_version": 2,
                 "built_at": "test",
                 "page_count": 1,
                 "chunk_count": 1,
             }),
-            patch.object(app_module, "rank_index", return_value=empty_vector_result),
-            patch.object(app_module, "load_index", return_value=full_index) as load_index,
-            patch.object(app_module, "rank_lexical_index", return_value=lexical_result) as rank_lexical,
-            patch.object(app_module, "live_verify_retrieval", return_value=(lexical_result["chunks"], False)),
-            patch.object(app_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
+            patch.object(chat_service_module, "rank_index", return_value=empty_vector_result),
+            patch.object(chat_service_module, "load_index", return_value=full_index) as load_index,
+            patch.object(chat_service_module, "rank_lexical_index", return_value=lexical_result) as rank_lexical,
+            patch.object(chat_service_module, "live_verify_retrieval", return_value=(lexical_result["chunks"], False)),
+            patch.object(chat_service_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
         ):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
 
@@ -628,17 +650,17 @@ class AppTests(unittest.TestCase):
         rank_lexical.assert_called_once()
 
     def test_cache_key_changes_with_chat_cache_version(self) -> None:
-        with patch.object(app_module, "CHAT_CACHE_VERSION", "contract-a"):
-            first_key = app_module.build_cache_key("uvt", "orar", [], "built", 1)
-        with patch.object(app_module, "CHAT_CACHE_VERSION", "contract-b"):
-            second_key = app_module.build_cache_key("uvt", "orar", [], "built", 1)
+        with patch.object(chat_service_module, "CHAT_CACHE_VERSION", "contract-a"):
+            first_key = chat_service_module.build_cache_key("uvt", "orar", [], "built", 1)
+        with patch.object(chat_service_module, "CHAT_CACHE_VERSION", "contract-b"):
+            second_key = chat_service_module.build_cache_key("uvt", "orar", [], "built", 1)
 
         self.assertNotEqual(first_key, second_key)
 
     def test_chat_reports_startup_indexing_without_retrieval(self) -> None:
-        original_indexing_state = app_module.get_indexing_state()
-        self.addCleanup(lambda: app_module.set_indexing_state(**original_indexing_state))
-        app_module.set_indexing_state(
+        original_indexing_state = indexing_service_module.get_indexing_state()
+        self.addCleanup(lambda: indexing_service_module.set_indexing_state(**original_indexing_state))
+        indexing_service_module.set_indexing_state(
             enabled=True,
             running=True,
             ready=False,
@@ -647,7 +669,7 @@ class AppTests(unittest.TestCase):
             progress=37,
         )
 
-        with patch.object(app_module, "load_index", side_effect=AssertionError("Retrieval should wait for indexing")):
+        with patch.object(chat_service_module, "load_index", side_effect=AssertionError("Retrieval should wait for indexing")):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
 
         self.assertEqual(response.status_code, 503)
@@ -658,21 +680,21 @@ class AppTests(unittest.TestCase):
 
     def test_startup_rebuild_skips_parent_debug_reloader_process(self) -> None:
         with (
-            patch.object(app_module, "STARTUP_REBUILD_INDEX", True),
+            patch.object(indexing_service_module, "STARTUP_REBUILD_INDEX", True),
             patch.dict("os.environ", {"WERKZEUG_RUN_MAIN": "false"}, clear=False),
         ):
-            self.assertFalse(app_module.should_run_startup_index_rebuild(debug=True))
+            self.assertFalse(indexing_service_module.should_run_startup_index_rebuild(debug=True))
 
         with (
-            patch.object(app_module, "STARTUP_REBUILD_INDEX", True),
+            patch.object(indexing_service_module, "STARTUP_REBUILD_INDEX", True),
             patch.dict("os.environ", {"WERKZEUG_RUN_MAIN": "true"}, clear=False),
         ):
-            self.assertTrue(app_module.should_run_startup_index_rebuild(debug=True))
+            self.assertTrue(indexing_service_module.should_run_startup_index_rebuild(debug=True))
 
     def test_feedback_accepts_malformed_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "feedback.jsonl"
-            with patch.object(app_module, "LOG_FILE", log_file):
+            with patch.object(feedback_service_module, "LOG_FILE", log_file):
                 response = self.client.post("/feedback", json=["bad"])
 
         self.assertEqual(response.status_code, 200)

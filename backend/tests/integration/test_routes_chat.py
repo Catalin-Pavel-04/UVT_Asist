@@ -23,7 +23,7 @@ def test_chat_route_calls_handle_chat_and_returns_status(monkeypatch, client) ->
 
     telemetry_calls = []
     monkeypatch.setattr(routes_chat, "new_request_id", lambda: "req-route")
-    monkeypatch.setattr(routes_chat, "handle_chat", fake_handle_chat)
+    monkeypatch.setattr(routes_chat.chat_service, "handle_chat", fake_handle_chat)
     monkeypatch.setattr(
         routes_chat,
         "log_chat_request",
@@ -58,7 +58,7 @@ def test_chat_route_logs_exception_when_handle_chat_raises(monkeypatch, client) 
         logged["exc"] = exc
 
     monkeypatch.setattr(routes_chat, "new_request_id", lambda: "req-exception")
-    monkeypatch.setattr(routes_chat, "handle_chat", fake_handle_chat)
+    monkeypatch.setattr(routes_chat.chat_service, "handle_chat", fake_handle_chat)
     monkeypatch.setattr(routes_chat, "log_chat_exception", fake_log_chat_exception)
 
     with pytest.raises(RuntimeError, match="chat failed"):

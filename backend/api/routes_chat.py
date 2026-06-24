@@ -4,7 +4,7 @@ import time
 
 from flask import Blueprint, jsonify, request
 
-from services.chat_service import handle_chat
+import services.chat_service as chat_service
 from services.telemetry_service import log_chat_exception, log_chat_request, new_request_id
 
 bp = Blueprint("chat", __name__)
@@ -16,7 +16,7 @@ def chat():
     started_at = time.perf_counter()
     request_payload = request.get_json(silent=True) or {}
     try:
-        payload, status = handle_chat(request_payload)
+        payload, status = chat_service.handle_chat(request_payload)
     except Exception as exc:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         log_chat_exception(request_id, request_payload, elapsed_ms, exc)

@@ -14,13 +14,17 @@ Repository-specific guidance for future Codex runs on `UVT_Asist`.
 
 ## Repo Structure
 
-- `backend/app.py`: Flask API, chat orchestration, response payloads, source verification, feedback logging, health reporting.
+- `backend/app.py`: Flask entrypoint, CORS configuration, blueprint registration, and direct `python backend/app.py` startup.
+- `backend/api/`: thin HTTP routes for health, faculties, indexing status, chat, and feedback.
+- `backend/services/`: application services for chat orchestration, response payloads, source verification, feedback logging, health reporting, indexing state, telemetry, cache, guards, and answer generation.
+- `backend/core/`: environment configuration and backend logging setup.
+- `backend/rag/`: Romanian normalization, typo correction, query analysis, intent detection, Qdrant retrieval orchestration, deterministic reranking, and confidence scoring.
+- `backend/rag/ranking/`: lexical, faculty, page-type, and policy scoring signals.
 - `backend/ollama_client.py`: local Ollama chat and embedding API client.
 - `backend/vector_store.py`: Qdrant collection setup, payload indexes, vector upsert, filtered search, status reporting.
 - `backend/vector_indexer.py`: chunk embedding text formatting and vector index rebuild logic.
 - `backend/build_index.py`: crawler plus JSON and Qdrant index builder.
 - `backend/page_index.py`: index schema, page classification, chunking, legacy index upgrade/loading.
-- `backend/retriever.py`: Romanian normalization, typo correction, intent detection, Qdrant retrieval, deterministic reranking, confidence scoring.
 - `backend/live_fetch.py`: official page fetching and text extraction for HTML, PDF, DOCX, text, and optional OCR assets.
 - `backend/site_cache.py`: short-lived live verification cache.
 - `backend/prompts.py`: local RAG prompt contract.

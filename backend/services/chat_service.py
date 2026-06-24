@@ -8,13 +8,10 @@ from faculties import FACULTIES
 from ollama_client import ask_ollama_json
 from page_index import build_chunk_entries_from_pages, get_index_status, load_index, metadata_index_document, normalize_url
 from prompts import build_user_prompt
-from retriever import (
-    compute_confidence,
-    normalize as normalize_retrieval_text,
-    rank_index,
-    rank_lexical_index,
-    rank_runtime_chunks,
-)
+from rag.confidence import compute_confidence
+from rag.query_analysis import analyze_query
+from rag.retrieval_service import rank_index, rank_lexical_index, rank_runtime_chunks
+from rag.text_normalization import normalize as normalize_retrieval_text
 from services.answer_generation_service import (
     answer_needs_fallback as _answer_needs_fallback,
     ask_ollama_answer as _ask_ollama_answer,
@@ -34,6 +31,7 @@ from services.chat_guards import (
     is_unsupported_question,
     is_vague_question,
     needs_faculty_clarification,
+    query_analysis_clarification_payload,
     unsupported_question_payload,
     vague_question_payload,
 )
@@ -56,57 +54,25 @@ from services.source_navigation_service import (
 from site_cache import verify_pages
 from vector_store import get_vector_index_status
 
-FACULTY_EXTRA_ALIASES = {
-    "info": {"fmi", "mate-info", "mate info", "fac de info", "facultatea de info", "informatica"},
-}
-
 LIVE_VERIFY_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 
-def build_faculty_aliases() -> dict[str, set[str]]:
-    aliases: dict[str, set[str]] = {}
-
-    for faculty in FACULTIES:
-        if faculty["id"] == GENERAL_FACULTY_ID:
-            continue
-
-        normalized_name = normalize_match_text(faculty["name"])
-        short_name = normalized_name.replace("facultatea ", "", 1).strip()
-        faculty_aliases = {faculty["id"], normalized_name, short_name}
-        faculty_aliases.update(FACULTY_EXTRA_ALIASES.get(faculty["id"], set()))
-
-        for base_url in faculty.get("base_urls", []):
-            host = (urlparse(base_url).hostname or "").lower()
-            if host.startswith("www."):
-                host = host[4:]
-            if host:
-                faculty_aliases.add(host.split(".")[0])
-
-        aliases[faculty["id"]] = {alias for alias in faculty_aliases if alias}
-
-    return aliases
+def _analysis_faculty_hint(analysis) -> str:
+    if analysis is None:
+        return ""
+    if isinstance(analysis, dict):
+        return normalize_match_text(analysis.get("faculty_hint", ""))
+    return normalize_match_text(getattr(analysis, "faculty_hint", ""))
 
 
-FACULTY_ALIASES = build_faculty_aliases()
-
-
-def infer_faculty(requested_faculty_id: str, question: str, history: list[dict]) -> dict:
+def infer_faculty(requested_faculty_id: str, question: str, history: list[dict], analysis=None) -> dict:
     selected_faculty = get_faculty(requested_faculty_id)
     if selected_faculty["id"] != GENERAL_FACULTY_ID:
         return selected_faculty
 
-    candidate_texts = [question]
-    candidate_texts.extend(item.get("content", "") for item in reversed(history))
-
-    for text in candidate_texts:
-        normalized_text = f" {normalize_match_text(text)} "
-        if not normalized_text.strip():
-            continue
-
-        for faculty_id, aliases in FACULTY_ALIASES.items():
-            for alias in aliases:
-                if len(alias) >= 3 and f" {alias} " in normalized_text:
-                    return FACULTY_MAP[faculty_id]
+    faculty_hint = _analysis_faculty_hint(analysis)
+    if faculty_hint in FACULTY_MAP and faculty_hint != GENERAL_FACULTY_ID:
+        return FACULTY_MAP[faculty_hint]
 
     return selected_faculty
 
@@ -327,10 +293,19 @@ def handle_chat(payload) -> tuple[dict, int]:
         return unsupported_question_payload(chat_request), 200
     if indexing_blocks_chat():
         return indexing_in_progress_payload(chat_request), 503
+
+    query_analysis = analyze_query(chat_request.question)
+    if query_analysis.requires_clarification:
+        return query_analysis_clarification_payload(chat_request, query_analysis), 200
     if is_vague_question(chat_request.question) and not chat_request.history:
         return vague_question_payload(chat_request), 200
 
-    faculty = infer_faculty(chat_request.requested_faculty_id, chat_request.question, chat_request.history)
+    faculty = infer_faculty(
+        chat_request.requested_faculty_id,
+        chat_request.question,
+        chat_request.history,
+        analysis=query_analysis,
+    )
     effective_question = build_effective_question(chat_request.question, chat_request.history)
     question_is_vague = is_vague_question(chat_request.question)
     vector_status = get_vector_index_status()

@@ -12,7 +12,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 from page_index import get_index_status, metadata_index_document
-from retriever import rank_index
+from rag.retrieval_service import rank_index
 from vector_store import get_vector_index_status
 
 

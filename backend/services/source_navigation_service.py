@@ -3,7 +3,8 @@ from __future__ import annotations
 import copy
 
 from page_index import load_index, normalize_url
-from retriever import compute_confidence, normalize as normalize_retrieval_text
+from rag.confidence import compute_confidence
+from rag.text_normalization import normalize as normalize_retrieval_text
 from services.chat_models import GENERAL_FACULTY_ID
 from services.chat_request_parser import compact_text
 from services.response_builder import (

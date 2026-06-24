@@ -8,7 +8,7 @@ def test_normalize_removes_diacritics_and_compacts_spaces() -> None:
 
 
 def test_tokenize_removes_stopwords_by_default() -> None:
-    assert tokenize("Unde gasesc orarul la secretariat?") == ["orar", "secretariat"]
+    assert tokenize("Unde gasesc orarul la secretariat?") == ["orarul", "secretariat"]
 
 
 def test_tokenize_can_keep_stopwords() -> None:
@@ -16,13 +16,12 @@ def test_tokenize_can_keep_stopwords() -> None:
 
     assert "unde" in tokens
     assert "gasesc" in tokens
-    assert "orar" in tokens
+    assert "orarul" in tokens
 
 
-def test_typo_correction_handles_schedule_and_secretariat_terms() -> None:
+def test_typo_correction_is_no_longer_hardcoded() -> None:
     schedule, _ = correct_query_terms("Unde este orrarul?")
     secretariat, _ = correct_query_terms("secreteriat")
 
-    assert "orar" in schedule
-    assert "orrar" not in schedule
-    assert secretariat == "secretariat"
+    assert "orrarul" in schedule
+    assert secretariat == "secreteriat"
