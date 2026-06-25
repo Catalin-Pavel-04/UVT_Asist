@@ -29,6 +29,7 @@ For deeper technical documentation, see:
 - [docs/project_structure.md](docs/project_structure.md)
 - [docs/development.md](docs/development.md)
 - [docs/evaluation/methodology.md](docs/evaluation/methodology.md)
+- [docs/evaluation/latest_rag_eval.md](docs/evaluation/latest_rag_eval.md)
 - [docs/evaluation/ablation_plan.md](docs/evaluation/ablation_plan.md)
 
 ## Project Structure
@@ -280,6 +281,7 @@ Use the final [demo checklist](docs/demo_checklist.md) before the thesis present
 - [Structura proiectului](docs/project_structure.md): explica organizarea codului pe directoare si responsabilitatile layerelor backend, RAG, extensie, teste, documentatie si scripturi.
 - [Ghid de dezvoltare locala](docs/development.md): setup Windows PowerShell, Ollama, Qdrant, build index, backend Flask si incarcarea extensiei Chrome.
 - [Metodologie evaluare RAG/Q&A](docs/evaluation/methodology.md): explica seturile de evaluare, pass/fail, scorul Q&A, Top-1/Top-3 URL, latenta si tratarea intrebarilor fara raspuns sigur.
+- [Ultima evaluare RAG post-refactor](docs/evaluation/latest_rag_eval.md): rezumat tracked pentru rularea pe 100 de intrebari dupa refactorizare.
 - [Plan ablation study](docs/evaluation/ablation_plan.md): descrie variantele lexical only, vector only, vector + reranking, live verification si full system.
 - [Cazuri de esec si refuz controlat](docs/evaluation/failure_cases.md): exemple de intrebari vagi, personale sau predictive unde sistemul trebuie sa ceara clarificari ori sa refuze un raspuns sigur.
 - [Note despre latenta](docs/evaluation/latency_notes.md): surse de latenta, interpretarea medie/mediana si practici pentru reducerea timpului de raspuns.
@@ -438,6 +440,8 @@ Generated reports are written under `backend/data/evaluation/`:
 
 For thesis write-up guidance, see [docs/evaluation/methodology.md](docs/evaluation/methodology.md), [docs/evaluation/ablation_plan.md](docs/evaluation/ablation_plan.md), and [docs/evaluation/README.md](docs/evaluation/README.md).
 
+The latest tracked post-refactor RAG run is summarized in [docs/evaluation/latest_rag_eval.md](docs/evaluation/latest_rag_eval.md). Raw JSON/CSV/Markdown reports remain generated local artifacts under `backend/data/evaluation/` and are intentionally ignored by Git.
+
 Metric meaning:
 
 - `top1_url_match`: the first returned source URL contains one expected official URL fragment.
@@ -484,7 +488,7 @@ python -m pytest
 .\scripts\final_check.ps1
 ```
 
-GitHub Actions runs the same fast offline validation on push to `main` and pull requests targeting `main`: dependency install, `python -m compileall backend`, and `python -m pytest`. CI does not start Ollama, Qdrant, Docker, the Flask server, smoke retrieval, demo checks, or RAG evaluation.
+GitHub Actions and GitLab CI run the same fast offline validation: dependency install, `python -m compileall backend`, and `python -m pytest`. CI does not start Ollama, Qdrant, Docker, the Flask server, smoke retrieval, demo checks, or RAG evaluation.
 
 Before a thesis demo, after starting Ollama and Qdrant, run the full local check:
 
