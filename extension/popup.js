@@ -299,7 +299,7 @@ async function sendMessage(prefilledQuestion = null) {
   const history = UVTState.buildHistoryPayload();
 
   setBusy(true);
-  UVTRender.setStatus(refs, "loading", "Analizez întrebarea", "Caut semantic în Qdrant local și verific doar sursele de top.");
+  UVTRender.setStatus(refs, "loading", "Analizez întrebarea", "Caut semantic în Qdrant local.");
   UVTRender.addUserMessage(refs, question);
   refs.input.value = "";
   UVTRender.addLoadingMessage(refs);
@@ -318,7 +318,7 @@ async function sendMessage(prefilledQuestion = null) {
         refs,
         "success",
         "Răspuns pregătit",
-        data.live_verified ? "Sursele principale au fost reverificate live." : "Răspuns generat local cu Ollama din surse oficiale."
+        "Răspuns generat local cu Ollama din sursele indexate local."
       );
     }
 

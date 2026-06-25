@@ -482,7 +482,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--full-site",
         action="store_true",
-        help="Use a broader crawl preset intended to minimize runtime live verification.",
+        help="Use a broader crawl preset for a more complete local runtime snapshot.",
     )
     parser.add_argument(
         "--skip-vector-index",

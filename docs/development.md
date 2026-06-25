@@ -67,7 +67,7 @@ pip install -r requirements-dev.txt
 Copy-Item backend\.env.example backend\.env
 ```
 
-Fisierul `backend\.env` contine modelele Ollama, configurarea Qdrant, setarile de live verification, CORS si optiunile de indexare.
+Fisierul `backend\.env` contine modelele Ollama, configurarea Qdrant, CORS, cache-uri si optiunile de indexare.
 
 ## 2. Rulare Ollama
 
@@ -202,8 +202,7 @@ Fiecare linie contine metadate precum:
 - `confidence`
 - `confidence_score`
 - `source_count`
-- `verified_source_count`
-- `live_verified`
+- `verified_source_count` si `live_verified`, pastrate pentru compatibilitatea payloadului; in configuratia curenta raman `0` si `false`, deoarece raspunsurile vin din indexul local.
 - `total_latency_ms`
 - `generation_error`, cand exista
 

@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-from urllib.parse import urlparse
-
-from core.config import CHAT_CACHE_VERSION, LIVE_VERIFY_ENABLED, LIVE_VERIFY_LIMIT
-from faculties import FACULTIES
+from core.config import CHAT_CACHE_VERSION
 from ollama_client import ask_ollama_json
-from page_index import build_chunk_entries_from_pages, get_index_status, load_index, metadata_index_document, normalize_url
+from page_index import get_index_status, load_index, metadata_index_document
 from prompts import build_user_prompt
-from rag.confidence import compute_confidence
 from rag.query_analysis import analyze_query
-from rag.retrieval_service import rank_index, rank_lexical_index, rank_runtime_chunks
+from rag.retrieval_service import rank_index, rank_lexical_index
 from rag.text_normalization import normalize as normalize_retrieval_text
 from services.answer_generation_service import (
     answer_needs_fallback as _answer_needs_fallback,
@@ -51,10 +46,7 @@ from services.source_navigation_service import (
     should_use_source_navigation_answer,
     source_navigation_topic,
 )
-from site_cache import verify_pages
 from vector_store import get_vector_index_status
-
-LIVE_VERIFY_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 
 def _analysis_faculty_hint(analysis) -> str:
@@ -113,107 +105,6 @@ def repair_generated_answer(prompt: str, flawed_answer: str) -> str | None:
 
 def answer_needs_fallback(answer: str) -> bool:
     return _answer_needs_fallback(answer)
-
-
-def merge_ranked_chunks(primary_chunks: list[dict], verified_chunks: list[dict]) -> list[dict]:
-    verified_by_url: dict[str, list[dict]] = {}
-    for chunk in verified_chunks:
-        normalized_url = normalize_url(chunk.get("url", ""))
-        if not normalized_url:
-            continue
-        verified_by_url.setdefault(normalized_url, []).append(dict(chunk))
-
-    for chunks in verified_by_url.values():
-        chunks.sort(key=lambda item: item.get("retrieval_score", 0), reverse=True)
-
-    merged: list[dict] = []
-    used_verified_chunk_ids: set[str] = set()
-    verified_offsets: dict[str, int] = {}
-    primary_urls: set[str] = set()
-    for primary_chunk in primary_chunks:
-        normalized_url = normalize_url(primary_chunk.get("url", ""))
-        if not normalized_url:
-            continue
-
-        merged_chunk = dict(primary_chunk)
-        primary_urls.add(normalized_url)
-        verified_candidates = verified_by_url.get(normalized_url, [])
-        offset = verified_offsets.get(normalized_url, 0)
-        verified_chunk = verified_candidates[offset] if offset < len(verified_candidates) else None
-        if verified_chunk:
-            merged_chunk["title"] = verified_chunk.get("title") or merged_chunk.get("title")
-            merged_chunk["chunk_text"] = verified_chunk.get("chunk_text") or merged_chunk.get("chunk_text")
-            merged_chunk["verified"] = True
-            verified_offsets[normalized_url] = offset + 1
-            if verified_chunk.get("chunk_id"):
-                used_verified_chunk_ids.add(str(verified_chunk["chunk_id"]))
-        merged.append(merged_chunk)
-
-    remaining_verified_chunks = [
-        chunk
-        for chunks in verified_by_url.values()
-        for chunk in chunks
-        if str(chunk.get("chunk_id") or "") not in used_verified_chunk_ids
-    ]
-    for verified_chunk in sorted(remaining_verified_chunks, key=lambda item: item.get("retrieval_score", 0), reverse=True):
-        normalized_url = normalize_url(verified_chunk.get("url", ""))
-        if normalized_url and normalized_url not in primary_urls:
-            merged.append(verified_chunk)
-            primary_urls.add(normalized_url)
-
-    return merged
-
-
-def live_verify_retrieval(
-    effective_question: str,
-    faculty_id: str,
-    retrieval_result: dict,
-    index_document: dict,
-) -> tuple[list[dict], bool]:
-    if not LIVE_VERIFY_ENABLED or LIVE_VERIFY_LIMIT <= 0:
-        return retrieval_result.get("chunks", []), False
-
-    top_urls = [chunk.get("url") for chunk in retrieval_result.get("chunks", []) if chunk.get("url")]
-    deep_document_verify = should_deep_verify_documents(retrieval_result)
-    verified_pages = verify_pages(top_urls, max_pages=LIVE_VERIFY_LIMIT, index_mode=deep_document_verify)
-    if not verified_pages:
-        return retrieval_result.get("chunks", []), False
-
-    verified_chunks = build_chunk_entries_from_pages(verified_pages, FACULTIES)
-    verified_result = rank_runtime_chunks(
-        verified_chunks,
-        effective_question,
-        faculty_id,
-        idf={},
-        top_k=4,
-    )
-    verified_urls = {normalize_url(page.get("url", "")) for page in verified_pages if page.get("url")}
-    merged_chunks = merge_ranked_chunks(retrieval_result.get("chunks", []), verified_result.get("chunks", []))
-
-    for chunk in merged_chunks:
-        if normalize_url(chunk.get("url", "")) in verified_urls:
-            chunk["verified"] = True
-
-    return merged_chunks[:6], True
-
-
-def is_document_source_url(url: str) -> bool:
-    return Path(urlparse(str(url)).path.lower()).suffix in LIVE_VERIFY_DOCUMENT_EXTENSIONS
-
-
-def should_deep_verify_documents(retrieval_result: dict) -> bool:
-    analysis = retrieval_result.get("analysis", {})
-    if not analysis.get("is_policy_question"):
-        return False
-    return any(is_document_source_url(chunk.get("url", "")) for chunk in retrieval_result.get("chunks", []))
-
-
-def refresh_confidence(retrieval_result: dict, chunks: list[dict]) -> None:
-    confidence = compute_confidence(chunks[:4], retrieval_result.get("analysis"))
-    retrieval_result["chunks"] = chunks[:4]
-    retrieval_result["confidence"] = confidence["label"]
-    retrieval_result["confidence_score"] = confidence["score"]
-    retrieval_result["confidence_reason"] = confidence["reason"]
 
 
 def ensure_canonical_uvt_contact_source(question: str, faculty: dict, retrieval_result: dict) -> dict:
@@ -330,17 +221,6 @@ def handle_chat(payload) -> tuple[dict, int]:
 
     retrieval_result = ensure_canonical_uvt_contact_source(chat_request.question, faculty, retrieval_result)
 
-    live_verified = False
-
-    if retrieval_result.get("chunks"):
-        merged_chunks, live_verified = live_verify_retrieval(
-            effective_question,
-            faculty["id"],
-            retrieval_result,
-            index_document,
-        )
-        refresh_confidence(retrieval_result, merged_chunks)
-
     if should_use_source_navigation_answer(chat_request.question, retrieval_result):
         generation = {"mode": "local_source_navigation"}
         answer = build_source_navigation_answer(chat_request.question, retrieval_result)
@@ -364,6 +244,6 @@ def handle_chat(payload) -> tuple[dict, int]:
             ask_ollama_json_func=ask_ollama_json,
         )
 
-    response_payload = build_response_payload(answer, faculty, retrieval_result, live_verified, generation)
+    response_payload = build_response_payload(answer, faculty, retrieval_result, False, generation)
     set_cached_response(cache_key, response_payload)
     return response_payload, 200

@@ -18,7 +18,7 @@
         url: source.url.trim(),
         faculty_id: source.faculty_id || "uvt",
         page_type: source.page_type || "general",
-        verified: Boolean(source.verified)
+        verified: false
       }))
       .filter((source) => {
         if (seen.has(source.url)) {
@@ -38,7 +38,7 @@
       confidence: meta.confidence || "",
       confidence_score: Number.isFinite(Number(meta.confidence_score)) ? Number(meta.confidence_score) : 0,
       confidence_reason: meta.confidence_reason || "",
-      live_verified: Boolean(meta.live_verified),
+      live_verified: false,
       retrieval_backend: meta.retrieval_backend || "",
       generation_mode: meta.generation_mode || "",
       evidence: meta.evidence && typeof meta.evidence === "object"

@@ -68,8 +68,8 @@ def resolve_repo_path(path_value: str) -> str:
 @dataclass(frozen=True)
 class AppSettings:
     max_question_chars: int = 1200
-    live_verify_enabled: bool = True
-    live_verify_limit: int = 2
+    live_verify_enabled: bool = False
+    live_verify_limit: int = 0
     response_cache_ttl: int = 300
     chat_cache_version: str = "2026-06-01-rag-v3"
     max_feedback_text_chars: int = 4000
@@ -128,8 +128,8 @@ Settings = AppSettings
 def get_app_settings() -> AppSettings:
     return AppSettings(
         max_question_chars=env_int("MAX_QUESTION_CHARS", "1200", minimum=120),
-        live_verify_enabled=env_bool("LIVE_VERIFY_ENABLED", "true"),
-        live_verify_limit=env_int("LIVE_VERIFY_LIMIT", "2", minimum=0),
+        live_verify_enabled=False,
+        live_verify_limit=0,
         response_cache_ttl=env_int("CHAT_RESPONSE_CACHE_TTL", "300", minimum=60),
         chat_cache_version=env_str("CHAT_CACHE_VERSION", "2026-06-01-rag-v3"),
         max_feedback_text_chars=env_int("MAX_FEEDBACK_TEXT_CHARS", "4000", minimum=200),

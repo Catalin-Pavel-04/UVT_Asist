@@ -13,10 +13,11 @@ helpers, and return the existing JSON response shapes.
   indexes, upsert, and filtered vector search.
 - `page_index.py`: owns the local JSON index schema, page classification, and
   chunking.
-- `retriever.py`: owns Romanian normalization, typo correction, intent detection,
+- `rag/`: owns Romanian normalization, typo correction, intent detection,
   Qdrant retrieval, deterministic reranking, and confidence scoring.
-- `live_fetch.py` and `site_cache.py`: perform narrow official-source
-  verification and cache fetched pages.
+- `live_fetch.py`: fetches official pages during crawling/index building.
+- `site_cache.py`: legacy helper for fetched-page cache status; `/chat` no
+  longer performs runtime live verification.
 - `vector_indexer.py`: converts JSON chunks into embedding text and rebuilds the
   Qdrant vector collection.
 

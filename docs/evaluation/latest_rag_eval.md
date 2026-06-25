@@ -2,7 +2,7 @@
 
 Acest document consemneaza verificarea RAG rulata dupa refactorizarile backend/RAG si dupa polish-ul UI al extensiei Chrome.
 
-Evaluarea a fost rulata prin endpointul public `POST /chat`, nu prin apeluri directe catre functii interne. Astfel, rezultatul verifica traseul real folosit de extensia Chrome: Flask API, servicii, query analysis, Qdrant retrieval, reranking determinist, live verification si generare locala cu Ollama.
+Evaluarea a fost rulata prin endpointul public `POST /chat`, nu prin apeluri directe catre functii interne. Astfel, rezultatul verifica traseul real folosit de extensia Chrome: Flask API, servicii, query analysis, Qdrant retrieval, reranking determinist si generare locala cu Ollama.
 
 ## Context rulare
 
@@ -24,7 +24,8 @@ Stack local folosit la momentul rularii:
 - Qdrant disponibil local;
 - colectie Qdrant: `uvt_asist_chunks`;
 - mod retrieval raportat de `/health`: `qdrant-vector-rag`;
-- live verification activat.
+- la momentul rularii istorice, live verification era activat;
+- in versiunea curenta, live verification a fost eliminat din runtime, iar raspunsurile folosesc snapshotul local JSON/Qdrant.
 
 ## Rezumat rezultate
 

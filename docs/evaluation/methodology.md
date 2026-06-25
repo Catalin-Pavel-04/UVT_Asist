@@ -44,7 +44,7 @@ python backend\scripts\evaluate_rag.py --backend-url http://127.0.0.1:5000 --tim
 
 Scriptul verifica mai intai `GET /health`. Daca backendul nu raspunde, evaluarea se opreste si nu produce un rezultat fals pozitiv.
 
-Pentru fiecare intrebare, evaluatorul salveaza raspunsul, sursele, metadata de confidence, backendul de retrieval, modul de generare, flagul de live verification si timpul de raspuns. Rapoartele generate local sunt scrise in `backend/data/evaluation/`.
+Pentru fiecare intrebare, evaluatorul salveaza raspunsul, sursele, metadata de confidence, backendul de retrieval, modul de generare, flagul compatibil `live_verified` si timpul de raspuns. In configuratia curenta, `live_verified=false`, deoarece raspunsurile folosesc snapshotul local JSON/Qdrant. Rapoartele generate local sunt scrise in `backend/data/evaluation/`.
 
 ## Rularea evaluarii Q&A 100
 
@@ -116,11 +116,11 @@ Intervalul include:
 - embedding local prin Ollama, daca este folosit;
 - cautarea in Qdrant sau fallbackul local;
 - reranking determinist;
-- live verification, daca este activata si selectata pentru sursele de top;
+- accesul la snapshotul local JSON/Qdrant;
 - generarea raspunsului cu Ollama;
 - serializarea raspunsului JSON.
 
-Evaluatorul raporteaza latenta per intrebare, latenta medie si latenta mediana. Media poate creste din cauza unor cazuri lente cu documente mari, PDF-uri, live verification sau generare Ollama. Mediana este mai reprezentativa pentru experienta tipica.
+Evaluatorul raporteaza latenta per intrebare, latenta medie si latenta mediana. Media poate creste din cauza unor cazuri lente cu documente mari, PDF-uri din index sau generare Ollama. Mediana este mai reprezentativa pentru experienta tipica.
 
 ## De ce intrebarile fara raspuns sigur sunt evaluate separat
 
@@ -146,6 +146,6 @@ Calitatea pentru intrebari noi depinde de:
 - disponibilitatea Ollama si Qdrant;
 - calitatea extragerii textului din HTML, PDF sau documente;
 - claritatea intrebarii;
-- configurarea live verification si a cache-urilor locale.
+- versiunea snapshotului local si cache-urile locale.
 
 Seturile de evaluare nu trebuie modificate pentru a imbunatati artificial rezultatele. Orice schimbare de dataset trebuie raportata ca schimbare metodologica.

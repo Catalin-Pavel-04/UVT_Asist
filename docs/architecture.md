@@ -1,6 +1,6 @@
 # Arhitectura tehnica UVT_Asist
 
-UVT_Asist este o aplicatie RAG locala pentru intrebari studentesti despre informatii oficiale ale Universitatii de Vest din Timisoara. Interfata publica este extensia Chrome, iar backendul Flask orchestreaza cautarea in surse oficiale, verificarea, generarea raspunsului si returnarea surselor catre utilizator.
+UVT_Asist este o aplicatie RAG locala pentru intrebari studentesti despre informatii oficiale ale Universitatii de Vest din Timisoara. Interfata publica este extensia Chrome, iar backendul Flask orchestreaza cautarea in sursele oficiale indexate local, generarea raspunsului si returnarea surselor catre utilizator.
 
 Aplicatia este proiectata local-first: indexul, embeddings, baza vectoriala si generarea raspunsului ruleaza pe calculatorul utilizatorului. Nu sunt folosite servicii externe AI in fluxul runtime.
 
@@ -14,11 +14,9 @@ flowchart LR
     Q --> D[Retriever]
     D --> E[Qdrant vector store]
     D --> F[Ollama embeddings]
-    D --> G[Surse oficiale UVT]
-    G --> H[Live verification]
+    D --> G[Index local surse oficiale UVT]
     E --> I[Reranking determinist]
     F --> I
-    H --> I
     I --> J[Ollama generation]
     J --> K[Raspuns + confidence + surse oficiale]
     K --> B
@@ -42,7 +40,7 @@ Backendul Flask expune endpointurile publice:
 - `POST /chat`
 - `POST /feedback`
 
-Rutele HTTP sunt subtiri si delega logica in servicii. Backendul valideaza inputul, decide facultatea efectiva, consulta indexul local, gestioneaza cache-ul de raspunsuri, aplica verificarea live cand este activata si construieste payloadul JSON pentru extensie.
+Rutele HTTP sunt subtiri si delega logica in servicii. Backendul valideaza inputul, decide facultatea efectiva, consulta indexul local, gestioneaza cache-ul de raspunsuri si construieste payloadul JSON pentru extensie.
 
 ### Crawler si indexare surse oficiale
 
@@ -109,11 +107,11 @@ Selectia finala a surselor nu este delegata modelului LLM. Candidatii semantici 
 
 Aceasta abordare reduce riscul ca modelul generativ sa aleaga surse gresite.
 
-### Live verification
+### Snapshot local al surselor
 
-Live verification este o etapa ingusta de verificare a celor mai bune URL-uri oficiale selectate. Cand este activata, backendul refetch-uieste un numar mic de pagini oficiale si re-rankeaza fragmentele proaspete.
+La runtime, backendul nu refetch-uieste paginile oficiale pentru fiecare intrebare. Sistemul trateaza indexul local JSON/Qdrant ca snapshot curent al documentelor oficiale.
 
-Aceasta etapa nu inlocuieste indexul local. Rolul ei este verificarea limitata a surselor de top, nu crawling general la runtime. Pentru demo offline, live verification poate fi dezactivata din `.env`.
+Prospetimea informatiei este obtinuta prin reconstruirea indexului cu `python backend/build_index.py`, nu prin verificare live in timpul conversatiei. Aceasta decizie reduce latenta si face demo-ul mai predictibil.
 
 ### Generarea raspunsului cu Ollama
 
@@ -129,7 +127,7 @@ Fiecare raspuns include:
 - `confidence_score`: scor numeric;
 - `confidence_reason`: explicatie scurta;
 - `sources`: lista curata de surse oficiale;
-- `evidence`: sumar despre numarul de surse, verificare live si sursa principala.
+- `evidence`: sumar despre numarul de surse si sursa principala.
 
 Cand dovezile sunt slabe sau prea generale, sistemul trebuie sa spuna explicit acest lucru. In proiect, un raspuns cu incredere scazuta este preferabil unui raspuns fluent dar nesustinut.
 

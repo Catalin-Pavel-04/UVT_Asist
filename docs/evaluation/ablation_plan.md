@@ -14,7 +14,6 @@ Pentru o comparatie corecta, toate variantele trebuie rulate cu:
 - aceeasi colectie Qdrant sau aceeasi reconstruire vectoriala;
 - aceleasi modele Ollama pentru generare si embedding;
 - acelasi backend URL si aceleasi timeout-uri;
-- aceeasi stare a live verification cache-ului, ideal golit inainte de fiecare runda;
 - acelasi hardware local, pe cat posibil.
 
 Comenzi de baza:
@@ -79,7 +78,7 @@ Descriere: sistemul foloseste Qdrant pentru candidati si reranking determinist p
 Cum ar fi rulat:
 
 - se foloseste pipeline-ul semantic + reranking;
-- live verification este dezactivata pentru a izola efectul rerankingului;
+- se foloseste configuratia curenta fara fetch live la runtime;
 - se ruleaza evaluarea pe aceleasi seturi.
 
 Ce ar demonstra:
@@ -94,32 +93,9 @@ Metrici asteptate relevante:
 - imbunatatire in categorii cu pagini oficiale specifice: orar, contact, calendar, burse;
 - latenta apropiata de vector only, deoarece rerankingul este local si determinist.
 
-### 4. Vector + reranking + live verification
+### 4. Full system
 
-Descriere: sistemul foloseste Qdrant, reranking si verificarea live a surselor de top, dar fara alte optimizari de raspuns din sistemul complet, daca acestea sunt izolate intr-o ramura experimentala.
-
-Cum ar fi rulat:
-
-- se activeaza live verification pentru sursele selectate;
-- se goleste cache-ul de live verification inainte de runda, apoi se noteaza separat rezultatele cu cache rece si cache cald;
-- se ruleaza evaluarea.
-
-Ce ar demonstra:
-
-- daca verificarea live creste increderea in sursele selectate;
-- impactul live verification asupra latentei;
-- cazurile unde pagina oficiala s-a schimbat fata de indexul local.
-
-Metrici asteptate relevante:
-
-- crestere a numarului de surse verificate;
-- posibila imbunatatire a confidence-ului;
-- latenta medie mai mare la cache rece;
-- latenta mai buna la cache cald.
-
-### 5. Full system
-
-Descriere: configuratia principala a aplicatiei: index local, Qdrant, reranking determinist, policy routing, live verification controlata, prompt RAG si generare locala cu Ollama.
+Descriere: configuratia principala a aplicatiei: index local, Qdrant, reranking determinist, policy routing, prompt RAG si generare locala cu Ollama.
 
 Cum ar fi rulat:
 
@@ -131,7 +107,7 @@ python backend\scripts\evaluate_qa.py
 Ce ar demonstra:
 
 - performanta sistemului final folosit in demo;
-- capacitatea de a combina retrieval semantic, reguli deterministe, verificare surse si generare locala;
+- capacitatea de a combina retrieval semantic, reguli deterministe, surse oficiale indexate local si generare locala;
 - comportamentul pe intrebari fara raspuns sigur.
 
 Metrici asteptate relevante:
@@ -147,7 +123,6 @@ Metrici asteptate relevante:
 | Lexical only |  |  |  |  |  |  |  |  |
 | Vector only |  |  |  |  |  |  |  |  |
 | Vector + reranking |  |  |  |  |  |  |  |  |
-| Vector + reranking + live verification |  |  |  |  |  |  |  |  |
 | Full system |  |  |  |  |  |  |  |  |
 
 ## Interpretare academica

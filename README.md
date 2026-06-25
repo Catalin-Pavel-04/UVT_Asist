@@ -2,7 +2,7 @@
 
 UVT_Asist is a bachelor thesis project that answers student questions using official pages from the West University of Timisoara. The product runs as a Chrome extension popup backed by a local Flask API. All AI components run locally: Ollama generates answers, Ollama creates embeddings, and Qdrant stores the vector index.
 
-The system is designed as local-index-first RAG. Official UVT and faculty pages are crawled into chunks, embedded locally, stored in Qdrant with metadata, analyzed through a local Ollama JSON query rewrite, retrieved semantically with faculty and page-type filters, reranked deterministically, optionally live-verified, and then passed to a local Ollama generation model.
+The system is designed as local-index-first RAG. Official UVT and faculty pages are crawled into chunks, embedded locally, stored in Qdrant with metadata, analyzed through a local Ollama JSON query rewrite, retrieved semantically with faculty and page-type filters, reranked deterministically, and then passed to a local Ollama generation model.
 
 ## Architecture
 
@@ -277,12 +277,12 @@ Use the final [demo checklist](docs/demo_checklist.md) before the thesis present
 
 ## Documentatie tehnica
 
-- [Arhitectura tehnica](docs/architecture.md): descrie extensia Chrome, backendul Flask, crawlerul, chunking-ul, embeddings locale, Qdrant, retrieval, reranking, live verification, generarea cu Ollama si confidence score.
+- [Arhitectura tehnica](docs/architecture.md): descrie extensia Chrome, backendul Flask, crawlerul, chunking-ul, embeddings locale, Qdrant, retrieval, reranking, generarea cu Ollama si confidence score.
 - [Structura proiectului](docs/project_structure.md): explica organizarea codului pe directoare si responsabilitatile layerelor backend, RAG, extensie, teste, documentatie si scripturi.
 - [Ghid de dezvoltare locala](docs/development.md): setup Windows PowerShell, Ollama, Qdrant, build index, backend Flask si incarcarea extensiei Chrome.
 - [Metodologie evaluare RAG/Q&A](docs/evaluation/methodology.md): explica seturile de evaluare, pass/fail, scorul Q&A, Top-1/Top-3 URL, latenta si tratarea intrebarilor fara raspuns sigur.
 - [Ultima evaluare RAG post-refactor](docs/evaluation/latest_rag_eval.md): rezumat tracked pentru rularea pe 100 de intrebari dupa refactorizare.
-- [Plan ablation study](docs/evaluation/ablation_plan.md): descrie variantele lexical only, vector only, vector + reranking, live verification si full system.
+- [Plan ablation study](docs/evaluation/ablation_plan.md): descrie variantele lexical only, vector only, vector + reranking si full system.
 - [Cazuri de esec si refuz controlat](docs/evaluation/failure_cases.md): exemple de intrebari vagi, personale sau predictive unde sistemul trebuie sa ceara clarificari ori sa refuze un raspuns sigur.
 - [Note despre latenta](docs/evaluation/latency_notes.md): surse de latenta, interpretarea medie/mediana si practici pentru reducerea timpului de raspuns.
 
@@ -333,14 +333,13 @@ Then `python backend\app.py` starts Flask and rebuilds the index in the backgrou
 The `INDEX_MAX_*` limits keep malformed or extremely large pages from exhausting memory during chunking.
 For large full-site indexes, keep `VECTOR_LEXICAL_BACKFILL_ENABLED=false` so runtime questions use Qdrant-first retrieval instead of scanning the full JSON index.
 
-For an offline-runtime demo where answers should come only from the local JSON/Qdrant snapshot, rebuild with the broad crawl, then set this in `backend\.env`:
+Runtime answers come only from the local JSON/Qdrant snapshot. For a fresh demo, rebuild with the broad crawl before presenting:
 
-```env
-LIVE_VERIFY_ENABLED=false
-LIVE_VERIFY_LIMIT=0
+```powershell
+python backend\build_index.py --full-site
 ```
 
-This keeps `/chat` from fetching UVT pages at question time. The tradeoff is freshness: rebuild the index whenever official pages change.
+The tradeoff is freshness: rebuild the index whenever official pages change.
 
 Rebuild only the Qdrant vector index from the existing JSON chunks:
 
@@ -362,7 +361,7 @@ Health check:
 Invoke-RestMethod http://127.0.0.1:5000/health
 ```
 
-The health payload reports Ollama availability, configured models, JSON index status, Qdrant collection status, startup indexing progress, live verification cache, and response cache size.
+The health payload reports Ollama availability, configured models, JSON index status, Qdrant collection status, startup indexing progress, and response cache size.
 It also exposes a `ready` flag and component checks for the configured Ollama generation model, embedding model, JSON index, Qdrant index, and JSON/Qdrant chunk-count match.
 
 ## Optional Local Test Interface
@@ -392,10 +391,10 @@ The popup backend URL can be configured from the extension options page; it rema
 7. Retrieve semantic candidates from the local vector collection.
 8. Rerank candidates with deterministic boosts for exact title, URL, faculty, page type, policy, and lexical signals.
 9. Penalize generic homepages when specific official pages exist.
-10. Live-verify only the best source URLs, unless `LIVE_VERIFY_ENABLED=false`.
+10. Use the local JSON/Qdrant snapshot as the runtime source of truth.
 11. Use deterministic answers for high-confidence navigation and administrative source questions.
 12. Send only the best official context chunks to the local Ollama generation model when synthesis is actually needed.
-13. Return a concise answer, confidence metadata, evidence metadata, verification state, and clean source cards.
+13. Return a concise answer, confidence metadata, evidence metadata, and clean source cards.
 
 Each stored Qdrant payload contains:
 
@@ -455,7 +454,7 @@ Metric meaning:
 - Answers are grounded in official UVT and faculty sources from the local JSON/Qdrant index.
 - Source selection is performed by Qdrant retrieval plus deterministic reranking; the LLM does not choose the final evidence.
 - The backend returns `confidence`, `confidence_score`, and an evidence profile with source counts and top source metadata.
-- Live verification is limited to selected top official URLs and can be disabled for offline demos.
+- Runtime answers do not fetch official pages live; freshness comes from rebuilding the local index.
 - The prompt contract forbids inventing dates, rules, eligibility criteria, or administrative decisions not present in the retrieved context.
 - When evidence is weak, the system should state that the official sources are insufficient instead of producing unsupported specificity.
 
@@ -535,7 +534,7 @@ Manual popup checklist:
 
 ## Limitations
 
-- The system answers only from pages present in the local JSON/Qdrant index plus the narrow live verification step.
+- The system answers only from pages present in the local JSON/Qdrant index.
 - The application depends on the quality, completeness, and freshness of the indexed official sources.
 - If official pages change, the index must be rebuilt with `python backend\build_index.py`.
 - If the embedding model changes, rebuild the Qdrant vector collection.

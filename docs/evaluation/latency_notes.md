@@ -24,16 +24,18 @@ Reranking-ul ruleaza in Python si foloseste semnale lexicale, de URL, de titlu, 
 
 Pentru indexuri mari, runtime-ul trebuie sa ramana Qdrant-first.
 
-### Live verification
+### Snapshot local in loc de live verification
 
-Live verification poate adauga latenta deoarece backendul refetch-uieste un numar mic de pagini oficiale. Documentele PDF sau DOCX sunt mai lente decat paginile HTML.
+Backendul nu mai refetch-uieste pagini oficiale la runtime pentru fiecare intrebare. Raspunsurile folosesc snapshotul local JSON/Qdrant, iar prospetimea este asigurata prin rebuild de index.
 
-Pentru demo offline sau evaluari strict reproductibile, live verification poate fi dezactivata:
+Configuratia curenta este:
 
 ```env
 LIVE_VERIFY_ENABLED=false
 LIVE_VERIFY_LIMIT=0
 ```
+
+Aceasta elimina latenta introdusa de fetch-uri live, in special pentru PDF/DOCX, si face demo-ul mai predictibil. Daca site-urile oficiale se schimba, indexul trebuie reconstruit.
 
 ### Generare cu Ollama
 
@@ -64,10 +66,10 @@ Raportul comparativ existent arata aceasta diferenta:
 - Pastreaza Qdrant disponibil si indexul vectorial complet.
 - Reconstruieste indexul vectorial dupa schimbarea modelului de embedding.
 - Evita fallback-ul lexical complet pe indexuri foarte mari.
-- Limiteaza live verification la putine URL-uri.
+- Reconstruieste indexul inainte de evaluari sau demo-uri importante.
 - Foloseste raspuns determinist pentru intrebari de navigare cand sursa este clara.
 - Pastreaza contextul trimis catre Ollama compact si bazat pe cele mai bune fragmente oficiale.
 
 ## Limitari
 
-Latenta masurata local nu este universala. Acelasi cod poate avea timpi diferiti pe alt calculator, cu alt model Ollama sau cu alta stare a indexului. De aceea, rezultatele de evaluare trebuie raportate impreuna cu modelul folosit, modul de rulare Qdrant si starea live verification.
+Latenta masurata local nu este universala. Acelasi cod poate avea timpi diferiti pe alt calculator, cu alt model Ollama sau cu alta stare a indexului. De aceea, rezultatele de evaluare trebuie raportate impreuna cu modelul folosit, modul de rulare Qdrant si versiunea snapshotului local.

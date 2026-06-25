@@ -34,7 +34,7 @@ def unique_sources_from_chunks(chunks: list[dict]) -> list[dict]:
             "url": url,
             "faculty_id": chunk.get("faculty_id", GENERAL_FACULTY_ID),
             "page_type": chunk.get("page_type", "general"),
-            "verified": bool(chunk.get("verified")),
+            "verified": False,
         })
         seen.add(normalized_url)
 
@@ -80,18 +80,13 @@ def build_evidence_profile(retrieval_result: dict, live_verified: bool) -> dict:
     confidence = retrieval_result.get("confidence", "low")
     top_chunk = chunks[0] if chunks else {}
     unique_urls = {normalize_url(chunk.get("url", "")) for chunk in chunks if chunk.get("url")}
-    verified_urls = {
-        normalize_url(chunk.get("url", ""))
-        for chunk in chunks
-        if chunk.get("url") and chunk.get("verified")
-    }
 
     return {
         "answerable": bool(chunks and confidence != "low"),
         "support_level": confidence,
         "source_count": len(unique_urls),
-        "verified_source_count": len(verified_urls),
-        "live_verified": bool(live_verified),
+        "verified_source_count": 0,
+        "live_verified": False,
         "top_source": {
             "title": compact_text(top_chunk.get("title"), 220),
             "url": top_chunk.get("url", ""),

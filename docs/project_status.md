@@ -56,7 +56,6 @@ Componente backend implementate:
 - client Ollama pentru chat si embeddings;
 - retriever semantic cu fallback lexical;
 - reranking determinist;
-- live verification limitata;
 - cache de raspunsuri;
 - guard-uri pentru intrebari goale, vagi, unsupported sau in timpul indexarii;
 - feedback local in format JSONL;
@@ -134,9 +133,8 @@ Fluxul RAG este local-index-first:
 5. query-ul este embedat local prin Ollama;
 6. Qdrant returneaza candidati vectoriali;
 7. candidatii sunt rerankati determinist;
-8. sursele de top pot fi reverificate live;
-9. backendul calculeaza confidence si evidence;
-10. raspunsul este generat local cu Ollama sau, pentru unele intrebari de navigare, local determinist.
+8. backendul calculeaza confidence si evidence;
+9. raspunsul este generat local cu Ollama sau, pentru unele intrebari de navigare, local determinist.
 
 Selectia surselor nu este delegata LLM-ului. Sursele sunt alese de retrieval si reranking deterministic, iar modelul generativ primeste doar contextul oficial selectat.
 
@@ -248,14 +246,14 @@ Limitari importante:
 - calitatea raspunsului depinde de sursele oficiale indexate;
 - daca site-urile UVT se schimba, indexul trebuie reconstruit;
 - daca modelul de embedding se schimba, Qdrant trebuie reconstruit;
-- live verification poate incetini raspunsurile;
+- raspunsurile reflecta snapshotul local al surselor oficiale;
 - documentele mari sau PDF-urile pot produce latente mai mari;
 - Ollama si Qdrant trebuie sa ruleze local pentru demo complet;
 - backendul este proiectat local, nu ca serviciu public;
 - evaluarile masoara seturile definite in proiect, nu toate intrebarile posibile;
 - OCR este optional si depinde de configurarea separata.
 
-Pentru demo predictibil, se poate dezactiva live verification in `.env`, dar atunci prospetimea depinde strict de indexul local.
+Pentru demo predictibil, indexul trebuie reconstruit inainte de prezentare daca sursele oficiale s-au schimbat.
 
 ## Ce trebuie verificat inainte de demo
 

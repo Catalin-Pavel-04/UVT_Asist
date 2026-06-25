@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from core.config import (
     CHAT_CACHE_VERSION,
-    LIVE_VERIFY_ENABLED,
-    LIVE_VERIFY_LIMIT,
     STARTUP_FETCH_WORKERS,
     STARTUP_MAX_DEPTH,
     STARTUP_MAX_LINKS_PER_PAGE,
@@ -77,8 +75,8 @@ def build_health_payload() -> dict:
         "embedding_provider": "ollama",
         "ollama_query_analysis_enabled": query_analysis_enabled(),
         "retrieval_mode": retrieval_mode,
-        "live_verification_enabled": bool(LIVE_VERIFY_ENABLED and LIVE_VERIFY_LIMIT > 0),
-        "live_verify_limit": LIVE_VERIFY_LIMIT,
+        "live_verification_enabled": False,
+        "live_verify_limit": 0,
         "chat_cache_version": CHAT_CACHE_VERSION,
         "startup_indexing": {
             "enabled": STARTUP_REBUILD_INDEX,

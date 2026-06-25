@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import sys
 import tempfile
@@ -106,7 +106,6 @@ class AppTests(unittest.TestCase):
             patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
             patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
             patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
-            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
             patch.object(
                 chat_service_module,
                 "ask_ollama_json",
@@ -310,7 +309,6 @@ class AppTests(unittest.TestCase):
             patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
             patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
             patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
-            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
             patch.object(
                 chat_service_module,
                 "ask_ollama_json",
@@ -382,7 +380,6 @@ class AppTests(unittest.TestCase):
             patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
             patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
             patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
-            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
             patch.object(
                 chat_service_module,
                 "ask_ollama_json",
@@ -444,7 +441,6 @@ class AppTests(unittest.TestCase):
             patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
             patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
             patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
-            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
             patch.object(
                 chat_service_module,
                 "ask_ollama_json",
@@ -473,65 +469,48 @@ class AppTests(unittest.TestCase):
         self.assertIn("Bursele prevazute la art. 2 alin (4) pot fi cumulate", prompt)
         self.assertIn("https://uvt.ro/metodologie-burse.pdf", prompt)
 
-    def test_live_verification_can_be_disabled_for_offline_runtime(self) -> None:
+    def test_chat_sources_are_reported_as_local_index(self) -> None:
         retrieval_result = {
-            "chunks": [{"url": "https://info.uvt.ro/orare", "chunk_text": "Orar"}],
+            "analysis": {
+                "intent": "orar",
+                "is_policy_question": False,
+                "corrected_question": "orar",
+                "tokens": ["orar"],
+                "expanded_tokens": ["orar"],
+                "corrections": [],
+            },
+            "chunks": [
+                {
+                    "chunk_id": "schedule",
+                    "faculty_id": "info",
+                    "page_type": "orar",
+                    "title": "Orare",
+                    "url": "https://info.uvt.ro/orare",
+                    "chunk_text": "Orar oficial.",
+                    "retrieval_score": 120,
+                    "match_signals": ["schedule_exact_path"],
+                    "verified": True,
+                }
+            ],
+            "confidence": "high",
+            "confidence_score": 95,
+            "confidence_reason": "OK",
+            "retrieval_backend": "qdrant",
         }
 
         with (
-            patch.object(chat_service_module, "LIVE_VERIFY_ENABLED", False),
-            patch.object(chat_service_module, "verify_pages", side_effect=AssertionError("Live fetch should not be called")),
+            patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
+            patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 1}),
+            patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
+            patch.object(chat_service_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
         ):
-            chunks, verified = chat_service_module.live_verify_retrieval("orar", "info", retrieval_result, {"chunks": []})
+            response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
 
-        self.assertEqual(chunks, retrieval_result["chunks"])
-        self.assertFalse(verified)
-
-    def test_live_verification_deep_fetches_policy_documents(self) -> None:
-        retrieval_result = {
-            "analysis": {"intent": "regulamente", "is_policy_question": True},
-            "chunks": [{"url": "https://uvt.ro/metodologie-burse.pdf", "chunk_text": "Burse"}],
-        }
-
-        with patch.object(chat_service_module, "verify_pages", return_value=[]) as verify_pages:
-            chunks, verified = chat_service_module.live_verify_retrieval(
-                "ce acte trebuie",
-                "uvt",
-                retrieval_result,
-                {"chunks": []},
-            )
-
-        self.assertEqual(chunks, retrieval_result["chunks"])
-        self.assertFalse(verified)
-        self.assertTrue(verify_pages.call_args.kwargs["index_mode"])
-
-    def test_merge_ranked_chunks_preserves_multiple_chunks_from_same_primary_url(self) -> None:
-        primary_chunks = [
-            {"chunk_id": "old-1", "url": "https://uvt.ro/doc.pdf", "title": "Doc", "chunk_text": "old one"},
-            {"chunk_id": "old-2", "url": "https://uvt.ro/doc.pdf", "title": "Doc", "chunk_text": "old two"},
-        ]
-        verified_chunks = [
-            {
-                "chunk_id": "new-1",
-                "url": "https://uvt.ro/doc.pdf",
-                "title": "Doc verificat",
-                "chunk_text": "documentele necesare",
-                "retrieval_score": 90,
-            },
-            {
-                "chunk_id": "new-2",
-                "url": "https://uvt.ro/doc.pdf",
-                "title": "Doc verificat",
-                "chunk_text": "certificat de divort",
-                "retrieval_score": 80,
-            },
-        ]
-
-        merged = chat_service_module.merge_ranked_chunks(primary_chunks, verified_chunks)
-
-        self.assertEqual(len(merged), 2)
-        self.assertEqual([chunk["chunk_text"] for chunk in merged], ["documentele necesare", "certificat de divort"])
-        self.assertTrue(all(chunk["verified"] for chunk in merged))
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertFalse(payload["live_verified"])
+        self.assertEqual(payload["evidence"]["verified_source_count"], 0)
+        self.assertFalse(payload["sources"][0]["verified"])
 
     def test_chat_uses_metadata_only_when_qdrant_is_ready(self) -> None:
         retrieval_result = {
@@ -575,7 +554,6 @@ class AppTests(unittest.TestCase):
             }),
             patch.object(chat_service_module, "load_index", side_effect=AssertionError("Full JSON should not be loaded")),
             patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
-            patch.object(chat_service_module, "live_verify_retrieval", return_value=(retrieval_result["chunks"], False)),
             patch.object(chat_service_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
         ):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})
@@ -637,7 +615,6 @@ class AppTests(unittest.TestCase):
             patch.object(chat_service_module, "rank_index", return_value=empty_vector_result),
             patch.object(chat_service_module, "load_index", return_value=full_index) as load_index,
             patch.object(chat_service_module, "rank_lexical_index", return_value=lexical_result) as rank_lexical,
-            patch.object(chat_service_module, "live_verify_retrieval", return_value=(lexical_result["chunks"], False)),
             patch.object(chat_service_module, "ask_ollama_json", return_value={"answer": "Orar oficial."}),
         ):
             response = self.client.post("/chat", json={"question": "Unde gasesc orarul?", "faculty_id": "info"})

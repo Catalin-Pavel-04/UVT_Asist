@@ -20,7 +20,7 @@ Test-Path backend\.env
 - [ ] Verifica setarile importante din `.env`:
 
 ```powershell
-Get-Content backend\.env | Select-String "OLLAMA_GENERATION_MODEL|OLLAMA_EMBEDDING_MODEL|QDRANT|LIVE_VERIFY|ALLOWED_CORS_ORIGINS"
+Get-Content backend\.env | Select-String "OLLAMA_GENERATION_MODEL|OLLAMA_EMBEDDING_MODEL|QDRANT|ALLOWED_CORS_ORIGINS"
 ```
 
 - [ ] Verifica daca Ollama raspunde:
@@ -253,18 +253,17 @@ Daca browserul cere explicit origin de extensie, se poate adauga temporar pentru
 ALLOWED_CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000,chrome-extension://*
 ```
 
-### Live verification incetineste raspunsul
+### Raspunsurile par invechite
 
-Simptom: raspunsurile sunt corecte, dar demo-ul pare lent cand backendul verifica pagini oficiale live.
+Simptom: raspunsurile sunt coerente, dar nu reflecta o modificare recenta de pe site-urile oficiale.
 
-Pentru demo offline mai predictibil, seteaza in `backend\.env`:
+Runtime-ul foloseste snapshotul local JSON/Qdrant. Reconstruieste indexul inainte de demo daca sursele oficiale s-au schimbat:
 
-```env
-LIVE_VERIFY_ENABLED=false
-LIVE_VERIFY_LIMIT=0
+```powershell
+python backend\build_index.py
 ```
 
-Dupa modificarea `.env`, reporneste backendul Flask.
+Dupa rebuild, reporneste backendul Flask.
 
 ## Secventa scurta chiar inainte de prezentare
 

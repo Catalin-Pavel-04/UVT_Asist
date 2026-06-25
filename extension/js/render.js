@@ -195,7 +195,7 @@
     block.appendChild(title);
 
     sources.forEach((source) => {
-      const verified = Boolean(source.verified);
+      const verified = false;
       const card = document.createElement("article");
       card.className = `source-card ${verified ? "verified" : "local-index"}`;
 
@@ -208,10 +208,8 @@
 
       const badge = document.createElement("span");
       badge.className = `source-status-badge ${verified ? "verified" : "local-index"}`;
-      badge.textContent = verified ? "Verificat live" : "Index local";
-      badge.title = verified
-        ? "Sursa a fost reverificată la runtime."
-        : "Sursa provine din indexul local.";
+      badge.textContent = "Index local";
+      badge.title = "Sursa provine din indexul local.";
 
       const link = document.createElement("a");
       link.className = "source-link";
@@ -333,8 +331,6 @@
     const sourceCount = Number.isFinite(sourceCountValue) && sourceCountValue > 0
       ? sourceCountValue
       : sources.length;
-    const liveVerified = Boolean(meta.live_verified);
-
     if (confidence) {
       const label = Number.isFinite(score) && score > 0
         ? `Încredere ${confidence} (${Math.round(score)})`
@@ -342,9 +338,7 @@
       chips.push(createMetaChip(label, confidenceTone(confidence), meta.confidence_reason || ""));
     }
 
-    if (liveVerified) {
-      chips.push(createMetaChip("Verificat live", "success", "Sursele principale au fost reverificate la runtime."));
-    } else if (meta.retrieval_backend || sourceCount > 0) {
+    if (meta.retrieval_backend || sourceCount > 0) {
       const backend = String(meta.retrieval_backend || "");
       const backendLabel = backend && !["qdrant", "local_json_lexical", "local_json_fallback"].includes(backend)
         ? backend
