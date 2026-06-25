@@ -319,7 +319,7 @@ class RetrieverTests(unittest.TestCase):
         ):
             analysis = analyze_query("Unde gasesc orarul?")
 
-        self.assertEqual(analysis.intent, "general")
+        self.assertEqual(analysis.intent, "orar")
         self.assertEqual(analysis.rewrite_source, "raw_fallback")
         self.assertEqual(analysis.corrected_question, "unde gasesc orarul?")
 
@@ -330,7 +330,7 @@ class RetrieverTests(unittest.TestCase):
         ):
             fallback = analyze_query("Unde gasesc orarul?")
 
-        self.assertEqual(fallback.intent, "general")
+        self.assertEqual(fallback.intent, "orar")
         self.assertEqual(fallback.rewrite_source, "raw_fallback")
         self.assertNotIn("ollama_keywords", fallback.corrections)
 

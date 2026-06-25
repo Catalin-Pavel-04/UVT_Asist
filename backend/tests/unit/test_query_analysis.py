@@ -126,7 +126,8 @@ def test_invalid_json_shape_falls_back_to_raw(monkeypatch: pytest.MonkeyPatch) -
 
     assert analysis.rewrite_source == "raw_fallback"
     assert analysis.corrected_question == "unde gasesc orrarul la info"
-    assert analysis.intent == "general"
+    assert analysis.intent == "orar"
+    assert "orar" in analysis.expanded_tokens
 
 
 def test_ollama_unavailable_falls_back_to_raw(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,6 +142,7 @@ def test_ollama_unavailable_falls_back_to_raw(monkeypatch: pytest.MonkeyPatch) -
 
     assert analysis.rewrite_source == "raw_fallback"
     assert analysis.corrected_question == "secreteriat info"
+    assert analysis.intent == "contact"
     assert analysis.corrections == ()
 
 
@@ -153,6 +155,7 @@ def test_raw_fallback_does_not_use_common_replacements_or_difflib(monkeypatch: p
     assert analysis.corrected_question == "orrarul secreteriat"
     assert "orar" not in analysis.corrected_question
     assert "secretariat" not in analysis.corrected_question
+    assert analysis.intent in {"orar", "contact"}
 
 
 def test_original_question_is_always_preserved(monkeypatch: pytest.MonkeyPatch) -> None:

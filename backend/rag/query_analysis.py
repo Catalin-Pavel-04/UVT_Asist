@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import asdict, dataclass
 from typing import Iterable
@@ -7,6 +8,7 @@ from typing import Iterable
 from core.config import env_bool, env_int
 from ollama_client import ask_ollama_json
 from rag.constants import (
+    COMMON_REPLACEMENTS,
     INTENT_KEYWORDS,
     INTENT_PAGE_TYPES,
     OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS,
@@ -16,6 +18,8 @@ from rag.intent_detection import (
     _is_housing_document_question,
     _is_social_document_question,
     _score_intents,
+    detect_intent,
+    detect_policy_question,
     is_volunteering_credit_query,
 )
 from rag.text_normalization import normalize, tokenize
@@ -138,21 +142,34 @@ def analyze_query_deterministic(question: str) -> QueryAnalysis:
     return raw_fallback_query_analysis(question)
 
 
+def _deterministic_match_text(question: str) -> str:
+    text = normalize(question)
+    for pattern, replacement in COMMON_REPLACEMENTS:
+        text = re.sub(pattern, replacement, text)
+    return text
+
+
 def raw_fallback_query_analysis(question: str) -> QueryAnalysis:
     normalized_question = normalize(question)
     tokens = tuple(tokenize(normalized_question))
-    page_type_preferences = build_page_type_preferences("general", False, tokens)
+    match_text = _deterministic_match_text(normalized_question)
+    deterministic_tokens = tuple(tokenize(match_text))
+    combined_tokens = tuple(dict.fromkeys([*tokens, *deterministic_tokens]))
+    intent = detect_intent(match_text)
+    is_policy_question = detect_policy_question(match_text, intent)
+    page_type_preferences = build_page_type_preferences(intent, is_policy_question, combined_tokens)
+    expanded_tokens = expand_query_tokens(combined_tokens, intent, is_policy_question)
     return QueryAnalysis(
         original_question=question,
         normalized_question=normalized_question,
         corrected_question=normalized_question,
         tokens=tokens,
-        expanded_tokens=tokens,
-        intent="general",
-        is_policy_question=False,
+        expanded_tokens=expanded_tokens,
+        intent=intent,
+        is_policy_question=is_policy_question,
         page_type_preferences=page_type_preferences,
         corrections=(),
-        keywords=tokens[:OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS],
+        keywords=combined_tokens[:OLLAMA_QUERY_ANALYSIS_MAX_KEYWORDS],
         faculty_hint="",
         requires_clarification=False,
         clarification_reason="",
@@ -307,13 +324,18 @@ def merge_ollama_query_analysis(question: str, base: QueryAnalysis, suggestion: 
     if intent not in VALID_INTENTS:
         intent = "general"
 
-    is_policy_question = _validated_bool(suggestion.get("is_policy_question"))
+    requires_clarification = _validated_bool(suggestion.get("requires_clarification"))
+    if intent == "general" and base.intent != "general" and not requires_clarification:
+        intent = base.intent
+
+    is_policy_question = _validated_bool(suggestion.get("is_policy_question")) or (
+        base.is_policy_question and not requires_clarification
+    )
     original_tokens = tuple(tokenize(base.original_question))
-    combined_tokens = tuple(dict.fromkeys([*tokens, *keywords, *original_tokens]))
+    combined_tokens = tuple(dict.fromkeys([*tokens, *keywords, *original_tokens, *base.expanded_tokens]))
     page_type_preferences = build_page_type_preferences(intent, is_policy_question, combined_tokens)
     expanded_tokens = expand_query_tokens(combined_tokens, intent, is_policy_question)
     faculty_hint = _validated_text(suggestion.get("faculty_hint"), 48)
-    requires_clarification = _validated_bool(suggestion.get("requires_clarification"))
     clarification_reason = _validated_text(suggestion.get("clarification_reason"), 240)
 
     corrections: list[str] = []
