@@ -221,7 +221,6 @@ async function clearConversation() {
   UVTState.clearHistory();
   await saveCurrentConversation();
   UVTRender.renderConversation(refs, UVTState.getHistory(), { onFeedback: handleFeedback });
-  UVTRender.resetMeta(refs);
   if (backendAvailable) {
     UVTRender.setStatus(refs, "idle", "Conversație ștearsă", "Poți începe o întrebare nouă pentru facultatea selectată.");
   } else {
@@ -311,7 +310,6 @@ async function sendMessage(prefilledQuestion = null) {
     const answer = data.answer || "Nu există răspuns disponibil.";
 
     UVTRender.removeLoadingMessage();
-    UVTRender.updateResultMeta(refs, data);
 
     if (data.confidence === "low") {
       UVTRender.setStatus(refs, "warning", "Dovezi parțiale", "Răspunsul este limitat de sursele oficiale găsite.");
@@ -340,18 +338,26 @@ async function sendMessage(prefilledQuestion = null) {
         retrieval_backend: data.retrieval_backend || "unknown",
         generation_mode: data.generation_mode || "unknown",
         generation_error: data.generation_error || "",
+        evidence: data.evidence || {},
         sources
       },
       handleFeedback
     );
 
     UVTState.appendHistory("user", question);
-    UVTState.appendHistory("assistant", answer, sources);
+    UVTState.appendHistory("assistant", answer, sources, {
+      confidence: data.confidence || "",
+      confidence_score: data.confidence_score || 0,
+      confidence_reason: data.confidence_reason || "",
+      live_verified: Boolean(data.live_verified),
+      retrieval_backend: data.retrieval_backend || "",
+      generation_mode: data.generation_mode || "",
+      evidence: data.evidence || {}
+    });
     await saveCurrentConversation();
     setBackendAvailability(true);
   } catch (error) {
     UVTRender.removeLoadingMessage();
-    UVTRender.resetMeta(refs);
     if (error.payload?.indexing) {
       handleIndexingStatus(error.payload.indexing);
       setBackendAvailability(true);
@@ -378,7 +384,6 @@ async function sendMessage(prefilledQuestion = null) {
 refs.faculty.addEventListener("change", async () => {
   await UVTStorage.saveFacultyId(refs.faculty.value);
   UVTRender.updateFacultyBadge(refs);
-  UVTRender.resetMeta(refs);
   await loadConversationHistory(refs.faculty.value);
 });
 
@@ -401,7 +406,6 @@ refs.chips.forEach((chip) => {
 (async function init() {
   updateControls();
   await loadTheme();
-  UVTRender.resetMeta(refs);
   await checkBackend();
   await loadFaculties();
   await loadConversationHistory(refs.faculty.value);

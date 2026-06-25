@@ -8,10 +8,6 @@
       send: document.getElementById("send"),
       faculty: document.getElementById("faculty"),
       facultyBadge: document.getElementById("facultyBadge"),
-      confidenceBadge: document.getElementById("confidenceBadge"),
-      verificationBadge: document.getElementById("verificationBadge"),
-      technicalDetails: document.getElementById("technicalDetails"),
-      metaLine: document.getElementById("metaLine"),
       emptyState: document.getElementById("emptyState"),
       emptyText: document.getElementById("emptyText"),
       statusDot: document.getElementById("statusDot"),
@@ -40,7 +36,9 @@
   }
 
   function setStatus(refs, kind, title, text) {
+    const showPanel = kind === "loading" || kind === "warning" || kind === "error";
     refs.statusPanel.className = `status-panel status-${kind}`;
+    refs.statusPanel.hidden = !showPanel;
     refs.statusTitle.textContent = title;
     refs.statusText.textContent = text;
   }
@@ -86,17 +84,6 @@
     refs.indexProgressBar.style.width = `${progress}%`;
     refs.indexProgressPercent.textContent = `${progress}%`;
     refs.indexProgressText.textContent = indexing.message || "Indexare în curs";
-  }
-
-  function resetMeta(refs) {
-    refs.confidenceBadge.textContent = "Încredere --";
-    refs.confidenceBadge.className = "meta-badge muted";
-    refs.verificationBadge.textContent = "Index local";
-    refs.verificationBadge.className = "meta-badge muted";
-    refs.metaLine.textContent = "Paginile oficiale specifice au prioritate față de paginile generale.";
-    if (refs.technicalDetails) {
-      refs.technicalDetails.open = false;
-    }
   }
 
   function updateFacultyBadge(refs) {
@@ -283,8 +270,13 @@
     return block;
   }
 
-  function addBotMessage(refs, text, sources = [], feedbackPayload = null, onFeedback = null) {
+  function addBotMessage(refs, text, sources = [], feedbackPayload = null, onFeedback = null, responseMeta = null) {
     refs.log.appendChild(createMessage("bot", "UVT Asist", text));
+
+    const metaBlock = createResponseMetaBlock(responseMeta || feedbackPayload || {}, sources);
+    if (metaBlock) {
+      refs.log.appendChild(metaBlock);
+    }
 
     const sourceBlock = createSourcesBlock(sources);
     if (sourceBlock) {
@@ -306,7 +298,7 @@
       if (entry.role === "user") {
         addUserMessage(refs, entry.text);
       } else {
-        addBotMessage(refs, entry.text, entry.sources, null, callbacks.onFeedback);
+        addBotMessage(refs, entry.text, entry.sources, null, callbacks.onFeedback, entry.meta);
       }
     });
     toggleEmptyState(refs);
@@ -322,41 +314,56 @@
     return "warning";
   }
 
-  function updateResultMeta(refs, data) {
-    const confidence = data.confidence || "low";
-    const score = Number.isFinite(data.confidence_score) ? data.confidence_score : 0;
+  function createMetaChip(text, tone = "muted", title = "") {
+    const chip = document.createElement("span");
+    chip.className = `response-meta-chip ${tone}`;
+    chip.textContent = text;
+    if (title) {
+      chip.title = title;
+    }
+    return chip;
+  }
 
-    refs.confidenceBadge.textContent = `Încredere ${confidence} (${score})`;
-    refs.confidenceBadge.className = `meta-badge ${confidenceTone(confidence)}`;
+  function createResponseMetaBlock(meta = {}, sources = []) {
+    const chips = [];
+    const confidence = meta.confidence;
+    const score = Number(meta.confidence_score);
+    const evidence = meta.evidence || {};
+    const sourceCountValue = Number(evidence.source_count);
+    const sourceCount = Number.isFinite(sourceCountValue) && sourceCountValue > 0
+      ? sourceCountValue
+      : sources.length;
+    const liveVerified = Boolean(meta.live_verified);
 
-    refs.verificationBadge.textContent = data.live_verified ? "Verificat live" : "Index local";
-    refs.verificationBadge.className = `meta-badge ${data.live_verified ? "success" : "muted"}`;
+    if (confidence) {
+      const label = Number.isFinite(score) && score > 0
+        ? `Încredere ${confidence} (${Math.round(score)})`
+        : `Încredere ${confidence}`;
+      chips.push(createMetaChip(label, confidenceTone(confidence), meta.confidence_reason || ""));
+    }
 
-    const profile = data.query_profile || {};
-    const evidence = data.evidence || {};
-    const metaParts = [
-      `Facultate: ${data.matched_faculty || "UVT"}`,
-      `Intent: ${profile.intent || "general"}`
-    ];
-    if (Number.isFinite(evidence.source_count) && evidence.source_count > 0) {
-      metaParts.push(`Surse: ${evidence.source_count}`);
+    if (liveVerified) {
+      chips.push(createMetaChip("Verificat live", "success", "Sursele principale au fost reverificate la runtime."));
+    } else if (meta.retrieval_backend || sourceCount > 0) {
+      const backend = String(meta.retrieval_backend || "");
+      const backendLabel = backend && !["qdrant", "local_json_lexical", "local_json_fallback"].includes(backend)
+        ? backend
+        : "Index local";
+      chips.push(createMetaChip(backendLabel, "muted", "Răspuns construit din sursele indexate local."));
     }
-    if (Number.isFinite(evidence.verified_source_count) && evidence.verified_source_count > 0) {
-      metaParts.push(`Verificate: ${evidence.verified_source_count}`);
+
+    if (sourceCount > 0) {
+      chips.push(createMetaChip(`${sourceCount} ${sourceCount === 1 ? "sursă" : "surse"}`, "muted"));
     }
-    if (profile.policy_question) {
-      metaParts.push("Rutare: regulamente/metodologii");
+
+    if (!chips.length) {
+      return null;
     }
-    if (data.retrieval_backend && data.retrieval_backend !== "qdrant") {
-      metaParts.push(`Mod căutare: ${data.retrieval_backend}`);
-    }
-    if (data.generation_mode && data.generation_mode !== "ollama") {
-      metaParts.push(`Mod răspuns: ${data.generation_mode}`);
-    }
-    if (data.confidence_reason) {
-      metaParts.push(data.confidence_reason);
-    }
-    refs.metaLine.textContent = metaParts.join(" | ");
+
+    const block = document.createElement("div");
+    block.className = "response-meta";
+    block.append(...chips);
+    return block;
   }
 
   function renderRecentQuestions(refs, questions = [], onClick) {
@@ -448,7 +455,6 @@
     setStatus,
     updateControlState,
     renderIndexingProgress,
-    resetMeta,
     updateFacultyBadge,
     clearLog,
     toggleEmptyState,
@@ -460,7 +466,6 @@
     addLoadingMessage,
     removeLoadingMessage,
     renderConversation,
-    updateResultMeta,
     renderRecentQuestions,
     populateFaculties,
     buildHealthMessages,

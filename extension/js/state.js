@@ -29,6 +29,29 @@
       });
   }
 
+  function normalizeResponseMeta(meta = {}) {
+    if (!meta || typeof meta !== "object") {
+      return {};
+    }
+
+    return {
+      confidence: meta.confidence || "",
+      confidence_score: Number.isFinite(Number(meta.confidence_score)) ? Number(meta.confidence_score) : 0,
+      confidence_reason: meta.confidence_reason || "",
+      live_verified: Boolean(meta.live_verified),
+      retrieval_backend: meta.retrieval_backend || "",
+      generation_mode: meta.generation_mode || "",
+      evidence: meta.evidence && typeof meta.evidence === "object"
+        ? {
+            source_count: Number.isFinite(Number(meta.evidence.source_count)) ? Number(meta.evidence.source_count) : 0,
+            verified_source_count: Number.isFinite(Number(meta.evidence.verified_source_count))
+              ? Number(meta.evidence.verified_source_count)
+              : 0
+          }
+        : {}
+    };
+  }
+
   function normalizeHistoryEntry(entry) {
     if (!entry || !["user", "assistant"].includes(entry.role)) {
       return null;
@@ -42,7 +65,8 @@
     return {
       role: entry.role,
       text,
-      sources: entry.role === "assistant" ? normalizeSources(entry.sources || []) : []
+      sources: entry.role === "assistant" ? normalizeSources(entry.sources || []) : [],
+      meta: entry.role === "assistant" ? normalizeResponseMeta(entry.meta || entry) : {}
     };
   }
 
@@ -65,7 +89,8 @@
     return state.history.map((entry) => ({
       role: entry.role,
       text: entry.text,
-      sources: entry.sources ? [...entry.sources] : []
+      sources: entry.sources ? [...entry.sources] : [],
+      meta: entry.meta ? { ...entry.meta, evidence: { ...(entry.meta.evidence || {}) } } : {}
     }));
   }
 
@@ -73,8 +98,8 @@
     state.history = [];
   }
 
-  function appendHistory(role, text, sources = []) {
-    const entry = normalizeHistoryEntry({ role, text, sources });
+  function appendHistory(role, text, sources = [], meta = {}) {
+    const entry = normalizeHistoryEntry({ role, text, sources, meta });
     if (!entry) {
       return;
     }
@@ -114,6 +139,7 @@
   global.UVTState = {
     MAX_HISTORY_MESSAGES,
     normalizeSources,
+    normalizeResponseMeta,
     normalizeHistoryEntry,
     setSending,
     setIndexing,

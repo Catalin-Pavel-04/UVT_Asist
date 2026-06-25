@@ -23,7 +23,7 @@
       </div>
     </header>
 
-    <section id="statusPanel" class="status-panel status-idle" aria-live="polite">
+    <section id="statusPanel" class="status-panel status-idle" aria-live="polite" hidden>
       <div id="statusTitle" class="status-title">Pregătit</div>
       <div id="statusText" class="status-text">Răspunsurile folosesc căutare vectorială locală și verifică doar sursele de top.</div>
       <div id="indexProgress" class="index-progress" hidden>
@@ -43,17 +43,6 @@
         <span id="facultyBadge" class="badge">UVT</span>
       </div>
       <select id="faculty"></select>
-    </section>
-
-    <section class="meta-panel">
-      <div class="meta-badges">
-        <span id="confidenceBadge" class="meta-badge muted">Încredere --</span>
-        <span id="verificationBadge" class="meta-badge muted">Index local</span>
-      </div>
-      <details id="technicalDetails" class="technical-details">
-        <summary>Detalii tehnice</summary>
-        <div id="metaLine" class="meta-line">Paginile oficiale specifice au prioritate față de paginile generale.</div>
-      </details>
     </section>
 
     <section id="log" class="chat" aria-label="Conversație">
@@ -89,8 +78,8 @@
     </section>
   </main>
 
-  <script src="js/storage.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/storage.js"></script>
   <script src="js/state.js"></script>
   <script src="js/render.js"></script>
   <script src="popup.js"></script>
