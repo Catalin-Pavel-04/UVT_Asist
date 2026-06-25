@@ -12,20 +12,33 @@ Set-Location $RepoRoot
 $VenvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $Python = if (Test-Path $VenvPython) { $VenvPython } else { "python" }
 
+function Invoke-PythonChecked {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Arguments
+    )
+
+    & $Python @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+
 if (-not $SkipCompile) {
-    & $Python -m compileall backend
+    $CompileExclude = '(^|[\\/])(\.venv|\.ocr-venv|__pycache__)([\\/]|$)'
+    Invoke-PythonChecked -m compileall -q -x $CompileExclude backend
 }
 
 if ($Coverage) {
-    & $Python -m pytest --cov=backend
+    Invoke-PythonChecked -m pytest --cov=backend
 }
 else {
-    & $Python -m pytest
+    Invoke-PythonChecked -m pytest
 }
 
 if ($EvaluateRag) {
     if (Test-Path "backend\scripts\evaluate_rag.py") {
-        & $Python backend\scripts\evaluate_rag.py
+        Invoke-PythonChecked backend\scripts\evaluate_rag.py
     }
     else {
         Write-Host "backend\scripts\evaluate_rag.py does not exist; skipping RAG evaluation."
