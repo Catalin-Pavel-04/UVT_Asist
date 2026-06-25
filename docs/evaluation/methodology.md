@@ -4,6 +4,7 @@ Evaluarea proiectului UVT_Asist foloseste doua seturi versionate in repository:
 
 - `backend/evaluation/eval_questions.json`: setul de evaluare RAG prin `backend/scripts/evaluate_rag.py`, cu 41 de intrebari orientate spre verificarea surselor, Top-1/Top-3 URL, confidence si latenta.
 - `backend/evaluation/eval_qa_100.json`: setul Q&A de 100 de intrebari prin `backend/scripts/evaluate_qa.py`, folosit pentru scorul mediu Q&A si raportul comparativ `qa_before_after_stats.md`.
+- `backend/data/evaluation/eval_qa_1000_independent.json`: set independent de 1000 de intrebari pentru evaluarea finala Q&A. Datasetul este plasat local in zona de evaluare si este evaluat prin `backend/scripts/evaluate_qa_1000_independent.py`.
 
 Aceasta separare este importanta pentru raportarea academica: primul set masoara in principal recuperarea surselor oficiale si comportamentul de siguranta, iar al doilea combina surse, raspuns, confidence si acoperire semantica intr-un scor 0-100.
 
@@ -57,6 +58,54 @@ python backend\scripts\evaluate_qa.py
 Acest script produce `qa_score`, `passed`, `confidence_match`, `top1_url_match`, `top3_url_match`, acoperire de fraze obligatorii, acoperire de termeni din raspunsul ideal si latenta. Raportul comparativ existent este:
 
 [qa_before_after_stats.md](qa_before_after_stats.md)
+
+## Evaluare independenta Q&A pe 1000 de intrebari
+
+Evaluarea independenta Q&A pe 1000 de intrebari este folosita ca evaluare finala pentru colectarea rezultatelor din documentatie si din lucrarea de licenta. Ea nu este un mecanism de tuning si nu trebuie folosita pentru a modifica intrebarile, rubricile sau logica aplicatiei ca sa imbunatateasca artificial scorurile.
+
+Datasetul contine 1000 de intrebari impartite in 10 categorii, cu cate 100 de intrebari per categorie. Intrebarile sunt independente si generate in afara Codex. Fiecare item contine intrebarea, facultatea, `ideal_answer`, `should_have_answer`, tipul raspunsului, intentul asteptat, tipul de pagina asteptat, fragmente de URL asteptate, confidence asteptat, termeni obligatorii si termeni interzisi.
+
+`ideal_answer` este tratat ca rubrica, nu ca raspuns unic. Nu se face comparatie exacta text-la-text, deoarece un raspuns corect poate fi formulat in mai multe moduri. Scoringul favorizeaza raspunsurile care folosesc surse oficiale corecte, au confidence potrivit, acopera `required_terms`, evita `forbidden_terms` si trateaza prudent intrebarile fara raspuns sigur.
+
+Rularea se face doar cu stackul local pornit:
+
+```powershell
+ollama serve
+docker compose up -d qdrant
+python backend/app.py
+```
+
+Test rapid:
+
+```powershell
+python backend/scripts/evaluate_qa_1000_independent.py --limit 10
+```
+
+Rulare completa cu resume:
+
+```powershell
+python backend/scripts/evaluate_qa_1000_independent.py --dataset backend/evaluation/eval_qa_1000_independent.json --backend-url http://127.0.0.1:5000 --timeout 180 --delay-ms 150 --run-label final_1000 --resume
+```
+
+Generarea raportului curat pentru documentatie si a tabelelor LaTeX:
+
+```powershell
+python backend/scripts/report_qa_1000_independent.py --input backend/data/evaluation/<result_file>.json
+```
+
+Metricile raportate includ:
+
+- `pass_rate`: procentul de intrebari cu scor cel putin 70;
+- `average_score`: scorul mediu pe toate intrebarile evaluate;
+- `median_score`: scorul median;
+- `ideal_overlap_score`: overlap lexical informativ intre raspuns si `ideal_answer`, fara rol de scor principal;
+- `top1_url_match`: prima sursa contine un fragment asteptat;
+- `top3_url_match`: una dintre primele trei surse contine un fragment asteptat;
+- `confidence_match`: nivelul de confidence este in lista asteptata;
+- `expected_unanswerable_handled`: intrebarile fara raspuns sigur sunt tratate prudent;
+- latenta medie, mediana, p90 si p95.
+
+Rezultatele sunt valabile pe setul definit si pe configuratia locala folosita la rulare, nu reprezinta garantie universala pentru orice intrebare posibila.
 
 ## Ce inseamna pass/fail
 

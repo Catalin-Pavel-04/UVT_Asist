@@ -441,6 +441,44 @@ For thesis write-up guidance, see [docs/evaluation/methodology.md](docs/evaluati
 
 The latest tracked post-refactor RAG run is summarized in [docs/evaluation/latest_rag_eval.md](docs/evaluation/latest_rag_eval.md). Raw JSON/CSV/Markdown reports remain generated local artifacts under `backend/data/evaluation/` and are intentionally ignored by Git.
 
+## Evaluare independenta Q&A pe 1000 de intrebari
+
+Pentru validarea finala, proiectul include un evaluator separat pentru un dataset independent de 1000 de intrebari. Scopul este colectarea de rezultate pentru documentatie si pentru lucrarea de licenta, nu tuningul sau optimizarea aplicatiei dupa rezultate.
+
+Datasetul are 10 categorii, cu cate 100 de intrebari per categorie. Intrebarile sunt independente si generate in afara Codex. Fiecare intrebare are `ideal_answer` ca rubrica, plus criterii de scoring: surse asteptate, confidence asteptat, `required_terms`, `forbidden_terms`, intent si page type.
+
+`ideal_answer` nu este comparat exact text-la-text, deoarece pot exista mai multe formulari corecte. Evaluarea pune accent pe sursa oficiala, confidence, termenii obligatorii, evitarea termenilor interzisi si tratarea corecta a incertitudinii.
+
+Porneste stackul local in terminale separate:
+
+```powershell
+ollama serve
+docker compose up -d qdrant
+python backend/app.py
+```
+
+Test rapid:
+
+```powershell
+python backend/scripts/evaluate_qa_1000_independent.py --limit 10
+```
+
+Rulare completa:
+
+```powershell
+python backend/scripts/evaluate_qa_1000_independent.py --dataset backend/evaluation/eval_qa_1000_independent.json --backend-url http://127.0.0.1:5000 --timeout 180 --delay-ms 150 --run-label final_1000 --resume
+```
+
+Generarea raportului Markdown, CSV si LaTeX:
+
+```powershell
+python backend/scripts/report_qa_1000_independent.py --input backend/data/evaluation/<result_file>.json
+```
+
+Metricile raportate includ `pass_rate`, scor mediu, scor median, `ideal_overlap_score` informativ, Top-1 URL match, Top-3 URL match, confidence match, unanswerable handled si latente medie/mediana/p90/p95.
+
+Rezultatele sunt valabile pe setul definit si pe configuratia locala folosita la rulare, nu reprezinta garantie universala pentru orice intrebare posibila.
+
 Metric meaning:
 
 - `top1_url_match`: the first returned source URL contains one expected official URL fragment.
