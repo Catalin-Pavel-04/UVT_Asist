@@ -1,0 +1,98 @@
+% Tabele generate automat din rezultatele evaluarii Q&A 1000 independent.
+% Include in lucrare cu: \input{docs/evaluation/qa1000_independent_latex_tables.tex}
+
+\begin{table}[htbp]
+\centering
+\caption{Rezultate globale pentru evaluarea Q\&A 1000}
+\label{tab:qa1000-global}
+\begin{tabular}{p{0.58\linewidth}r}
+\hline
+Metrica & Valoare \\
+\hline
+Total intrebari & 1000 \\
+Raspunsuri generate & 1000 \\
+Passed & 644 \\
+Failed & 356 \\
+Pass rate & 64.4\% \\
+Scor mediu & 72.34 \\
+Scor median & 82.35 \\
+Overlap ideal mediu & 12.82 \\
+Top-1 URL match & 439/694 (63.26\%) \\
+Top-3 URL match & 502/694 (72.33\%) \\
+Confidence match & 843/1000 (84.30\%) \\
+Erori & 0 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Rezultate pe categorii pentru evaluarea Q\&A 1000}
+\label{tab:qa1000-categorii}
+\begin{tabular}{p{0.30\linewidth}rrrrrrr}
+\hline
+Categorie & Total & Pass rate & Scor mediu & Top-1 & Top-3 & Latenta & Erori \\
+\hline
+admitere & 100 & 80.0\% & 78.35 & 44/100 & 66/100 & 35.278 & 0 \\
+burse & 100 & 65.0\% & 78.29 & 92/100 & 93/100 & 26.984 & 0 \\
+calendar\_academic & 100 & 39.0\% & 60.12 & 26/100 & 39/100 & 15.221 & 0 \\
+cazare\_camine & 100 & 87.0\% & 84.7 & 91/100 & 92/100 & 23.703 & 0 \\
+contact\_secretariat & 100 & 92.0\% & 89.36 & 46/54 & 46/54 & 26.135 & 0 \\
+intrebari\_fara\_raspuns\_sigur & 100 & 43.0\% & 57.45 & 0/0 & 0/0 & 18.963 & 0 \\
+intrebari\_vagi\_ambigue & 100 & 16.0\% & 37.5 & 0/0 & 0/0 & 20.095 & 0 \\
+orar & 100 & 68.0\% & 74.76 & 24/40 & 24/40 & 24.294 & 0 \\
+regulamente\_metodologii & 100 & 59.0\% & 72.57 & 19/100 & 42/100 & 17.358 & 0 \\
+voluntariat\_credite & 100 & 95.0\% & 90.27 & 97/100 & 100/100 & 25.203 & 0 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Latente pentru evaluarea Q\&A 1000}
+\label{tab:qa1000-latente}
+\begin{tabular}{p{0.45\linewidth}r}
+\hline
+Metrica & Secunde \\
+\hline
+Medie & 23.323 \\
+Mediana & 24.335 \\
+P75 & 32.971 \\
+P90 & 39.986 \\
+P95 & 51.269 \\
+Max & 149.611 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Distributia modului de generare}
+\label{tab:qa1000-generation-mode}
+\begin{tabular}{p{0.60\linewidth}r}
+\hline
+Generation mode & Numar \\
+\hline
+ollama & 458 \\
+local\_source\_navigation & 347 \\
+fallback\_ollama\_error & 105 \\
+none & 61 \\
+clarification & 29 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Distributia backendului de retrieval}
+\label{tab:qa1000-retrieval-backend}
+\begin{tabular}{p{0.60\linewidth}r}
+\hline
+Retrieval backend & Numar \\
+\hline
+qdrant & 910 \\
+clarification & 58 \\
+unsupported\_guard & 32 \\
+\hline
+\end{tabular}
+\end{table}
