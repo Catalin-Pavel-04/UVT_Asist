@@ -1,15 +1,14 @@
-# Rezultatele evaluarii RAG
+# Evaluare RAG si Q&A
 
-Rezultatele brute generate local raman in `backend/data/evaluation/` si sunt ignorate de Git. Pentru lucrarea de licenta, pastreaza in repository doar rezumatele stabile sau valorile finale folosite in documentatie.
+Acest director pastreaza documentatia stabila pentru evaluarea proiectului. Rapoartele brute generate local raman in `backend/data/evaluation/` si sunt ignorate de Git.
 
-Documente utile:
+Documente principale:
 
-- [methodology.md](methodology.md): metodologia evaluarii RAG si Q&A.
-- [latest_rag_eval.md](latest_rag_eval.md): ultima evaluare RAG post-refactor pe setul de 100 de intrebari.
-- [qa_before_after_stats.md](qa_before_after_stats.md): raport comparativ Q&A inainte/dupa optimizari.
-- [ablation_plan.md](ablation_plan.md): plan pentru ablation study.
-- [failure_cases.md](failure_cases.md): exemple de refuz controlat si clarificari.
-- [latency_notes.md](latency_notes.md): interpretarea latentei.
+- [methodology.md](methodology.md): metodologia pentru evaluarea RAG, Q&A 100, Q&A 1000 si ablation study.
+- [results.md](results.md): rezultatele consolidate pentru Q&A 1000, RAG post-refactor, comparatia Q&A 100 si latenta.
+- [failure_analysis.md](failure_analysis.md): limite cunoscute, cazuri de refuz/clarificare si taxonomie pentru review manual.
+- [qa1000_independent_latex_tables.tex](qa1000_independent_latex_tables.tex): tabele LaTeX generate din rezultatul final.
+- [figures/](figures/): graficele Q&A 1000 folosite in raport si lucrare.
 
 ## Rulare evaluare RAG
 
@@ -37,7 +36,7 @@ Rulare pe setul Q&A de 100 de intrebari cu evaluatorul RAG:
 python backend/scripts/evaluate_rag.py --questions backend/evaluation/eval_qa_100.json --timeout 180
 ```
 
-## Rulare evaluare Q&A
+## Rulare evaluare Q&A 100
 
 Pentru comparatia Q&A cu 100 de intrebari si raspunsuri ideale:
 
@@ -47,15 +46,11 @@ python backend/scripts/evaluate_qa.py
 
 Datasetul folosit este `backend/evaluation/eval_qa_100.json`. Scorul Q&A combina potrivirea surselor, confidence-ul, acoperirea termenilor esentiali din raspunsul ideal si tratarea intrebarilor fara raspuns sigur.
 
-## Evaluare independenta Q&A pe 1000 de intrebari
+## Rulare evaluare Q&A 1000
 
-Aceasta evaluare este gandita ca evaluare finala pentru documentatie si pentru lucrarea de licenta. Scopul ei este colectarea de rezultate reproductibile pe un set independent, nu tuningul sau optimizarea aplicatiei dupa rezultate.
+Aceasta evaluare este gandita ca evaluare finala pentru documentatie si pentru lucrarea de licenta. Scopul ei este colectarea de rezultate reproductibile pe un set independent, nu tuningul aplicatiei dupa rezultate.
 
-Datasetul are 1000 de intrebari, grupate in 10 categorii cu cate 100 de intrebari per categorie. Intrebarile sunt independente si generate in afara Codex. Fiecare intrebare include o rubrica `ideal_answer` si criterii de scoring precum `expected_url_contains`, `expected_confidence`, `required_terms` si `forbidden_terms`.
-
-`ideal_answer` nu este comparat exact text-la-text, deoarece pot exista mai multe formulari corecte ale aceluiasi raspuns. Evaluatorul masoara semnale verificabile: sursa oficiala returnata, confidence-ul, termenii obligatorii, termenii interzisi si tratarea prudenta a incertitudinii.
-
-Inainte de rulare, pornesc serviciile locale:
+Porneste serviciile locale:
 
 ```powershell
 ollama serve
@@ -75,13 +70,21 @@ Rulare completa:
 python backend/scripts/evaluate_qa_1000_independent.py --dataset backend/evaluation/eval_qa_1000_independent.json --backend-url http://127.0.0.1:5000 --timeout 180 --delay-ms 150 --run-label final_1000 --resume
 ```
 
-Generare raport pentru documentatie si LaTeX:
+Generare raport detaliat, CSV-uri si tabele LaTeX:
 
 ```powershell
 python backend/scripts/report_qa_1000_independent.py --input backend/data/evaluation/<result_file>.json
 ```
 
-Rezultatele JSON, CSV si Markdown se salveaza in `backend/data/evaluation/`. Raportul curat si tabelele LaTeX se genereaza in `docs/evaluation/`.
+Generare grafice:
+
+```powershell
+python backend/scripts/plot_qa1000_results.py --input backend/data/evaluation/<result_file>.json
+```
+
+## Artefacte generate
+
+Rezultatele JSON, CSV si Markdown se salveaza in `backend/data/evaluation/`. Raportul detaliat regenerabil `docs/evaluation/qa1000_independent_report.md` este ignorat de Git; valorile stabile pastrate in repository sunt consolidate in [results.md](results.md).
 
 Metricile principale sunt:
 
@@ -96,25 +99,3 @@ Metricile principale sunt:
 - latenta medie, mediana, p90 si p95.
 
 Rezultatele sunt valabile pe setul definit si pe configuratia locala folosita la rulare, nu reprezinta garantie universala pentru orice intrebare posibila.
-
-## Metrici recomandate pentru raportare
-
-- total questions;
-- top-1 URL match;
-- top-3 URL match;
-- low confidence count;
-- expected unanswerable handled;
-- average latency;
-- median latency.
-
-## Template tabel
-
-| Metrica | Valoare |
-| --- | ---: |
-| Total intrebari |  |
-| Top-1 URL match |  |
-| Top-3 URL match |  |
-| Confidence low |  |
-| Intrebari fara raspuns sigur tratate corect |  |
-| Latenta medie |  |
-| Latenta mediana |  |

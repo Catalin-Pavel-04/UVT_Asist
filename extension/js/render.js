@@ -1,6 +1,8 @@
 "use strict";
 
 (function exposeRender(global) {
+  const TEXT = global.UVTContent.TEXT;
+
   function createRefs() {
     return {
       log: document.getElementById("log"),
@@ -50,7 +52,7 @@
     const hasHistory = (Array.isArray(snapshot.history) && snapshot.history.length > 0) || hasRenderedMessages;
     refs.send.disabled = busy || backendUnavailable;
     refs.send.title = backendUnavailable
-      ? "Pornește backendul Flask local pentru a trimite întrebări."
+      ? TEXT.backendUnavailableTooltip
       : "";
     refs.input.disabled = busy;
     refs.faculty.disabled = busy;
@@ -83,7 +85,7 @@
     refs.indexProgress.hidden = false;
     refs.indexProgressBar.style.width = `${progress}%`;
     refs.indexProgressPercent.textContent = `${progress}%`;
-    refs.indexProgressText.textContent = indexing.message || "Indexare în curs";
+    refs.indexProgressText.textContent = indexing.message || TEXT.indexingTitle;
   }
 
   function updateFacultyBadge(refs) {
@@ -204,12 +206,12 @@
 
       const label = document.createElement("div");
       label.className = "source-label";
-      label.textContent = source.title || "Sursă oficială";
+      label.textContent = source.title || TEXT.sourceDefaultTitle;
 
       const badge = document.createElement("span");
       badge.className = `source-status-badge ${verified ? "verified" : "local-index"}`;
-      badge.textContent = "Index local";
-      badge.title = "Sursa provine din indexul local.";
+      badge.textContent = TEXT.localIndexBadge;
+      badge.title = TEXT.localIndexTooltip;
 
       const link = document.createElement("a");
       link.className = "source-link";
@@ -251,12 +253,12 @@
     async function sendFeedback(value) {
       useful.disabled = true;
       inaccurate.disabled = true;
-      stateText.textContent = "Se salvează...";
+      stateText.textContent = TEXT.savingFeedback;
       try {
         await onFeedback({ ...payload, feedback: value, created_at: new Date().toISOString() });
-        stateText.textContent = "Salvat";
+        stateText.textContent = TEXT.savedFeedback;
       } catch {
-        stateText.textContent = "Netrimis";
+        stateText.textContent = TEXT.failedFeedback;
         useful.disabled = false;
         inaccurate.disabled = false;
       }
@@ -332,9 +334,7 @@
       ? sourceCountValue
       : sources.length;
     if (confidence) {
-      const label = Number.isFinite(score) && score > 0
-        ? `Încredere ${confidence} (${Math.round(score)})`
-        : `Încredere ${confidence}`;
+      const label = TEXT.confidenceLabel(confidence, score);
       chips.push(createMetaChip(label, confidenceTone(confidence), meta.confidence_reason || ""));
     }
 
@@ -342,12 +342,12 @@
       const backend = String(meta.retrieval_backend || "");
       const backendLabel = backend && !["qdrant", "local_json_lexical", "local_json_fallback"].includes(backend)
         ? backend
-        : "Index local";
-      chips.push(createMetaChip(backendLabel, "muted", "Răspuns construit din sursele indexate local."));
+        : TEXT.localIndexBadge;
+      chips.push(createMetaChip(backendLabel, "muted", TEXT.localIndexMeta));
     }
 
     if (sourceCount > 0) {
-      chips.push(createMetaChip(`${sourceCount} ${sourceCount === 1 ? "sursă" : "surse"}`, "muted"));
+      chips.push(createMetaChip(TEXT.sourceCount(sourceCount), "muted"));
     }
 
     if (!chips.length) {
@@ -403,25 +403,25 @@
     const messages = [];
 
     if (checks.ollama === false || ollama.available === false) {
-      messages.push("Ollama local nu răspunde. Pornește `ollama serve`.");
+      messages.push(TEXT.ollamaUnavailable);
     } else {
       if (checks.generation_model === false || ollama.generation_model_available === false) {
-        messages.push(`Modelul local de generare lipsește. Rulează \`ollama pull ${generationModel}\`.`);
+        messages.push(TEXT.generationModelMissing(generationModel));
       }
       if (checks.embedding_model === false || ollama.embedding_model_available === false) {
-        messages.push(`Modelul local de embedding lipsește. Rulează \`ollama pull ${embeddingModel}\`.`);
+        messages.push(TEXT.embeddingModelMissing(embeddingModel));
       }
     }
 
     if (checks.json_index === false || index.exists === false || chunkCount === 0) {
-      messages.push("Indexul local lipsește. Rulează `python backend/build_index.py`.");
+      messages.push(TEXT.jsonIndexMissing);
     }
 
     if (checks.qdrant_index === false || vectorIndex.available === false || vectorCount === 0) {
       if (vectorIndex.available === false || vectorIndex.exists === false) {
-        messages.push("Qdrant local este indisponibil. Rulează `docker compose up -d qdrant`.");
+        messages.push(TEXT.qdrantUnavailable);
       } else {
-        messages.push("Qdrant nu are vectori indexați. Pornește Qdrant și reconstruiește indexul.");
+        messages.push(TEXT.qdrantEmpty);
       }
     }
 
@@ -430,7 +430,7 @@
       && chunkCount > 0
       && vectorCount > 0
     ) {
-      messages.push("Numărul de chunks din JSON nu corespunde cu punctele din Qdrant. Rulează `python backend/scripts/build_vector_index.py`.");
+      messages.push(TEXT.indexVectorMismatch);
     }
 
     return messages.length ? messages : statusReasons;
@@ -439,8 +439,8 @@
   function applyTheme(refs, theme) {
     const dark = theme === "dark";
     document.body.classList.toggle("dark", dark);
-    refs.themeToggle.textContent = dark ? "Light" : "Dark";
-    refs.themeToggle.title = dark ? "Comută pe tema deschisă" : "Comută pe tema închisă";
+    refs.themeToggle.textContent = dark ? TEXT.lightTheme : TEXT.darkTheme;
+    refs.themeToggle.title = dark ? TEXT.lightThemeTitle : TEXT.darkThemeTitle;
   }
 
   global.UVTRender = {

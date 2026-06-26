@@ -15,6 +15,7 @@ import services.chat_service as chat_service_module
 import services.feedback_service as feedback_service_module
 import services.indexing_service as indexing_service_module
 from app import create_app
+from rag.query_analysis import raw_fallback_query_analysis
 
 
 class AppTests(unittest.TestCase):
@@ -60,6 +61,12 @@ class AppTests(unittest.TestCase):
         with (
             patch.object(chat_service_module, "load_index", return_value={"built_at": "test", "chunks": []}),
             patch.object(chat_service_module, "get_vector_index_status", return_value={"points_count": 0}),
+            patch.object(chat_service_module, "is_unsupported_question", return_value=False),
+            patch.object(
+                chat_service_module,
+                "analyze_query",
+                return_value=raw_fallback_query_analysis("intrebare administrativa fara sursa"),
+            ),
             patch.object(chat_service_module, "rank_index", return_value=retrieval_result),
             patch.object(chat_service_module, "ask_ollama_json", side_effect=AssertionError("LLM should not be called")),
         ):
@@ -242,7 +249,7 @@ class AppTests(unittest.TestCase):
 
         answer = chat_service_module.build_local_fallback_answer(retrieval_result)
 
-        self.assertIn("analiza informatiei este rezervata pentru Ollama", answer)
+        self.assertIn("pot doar sa indic sursele oficiale gasite", answer)
         self.assertIn("\"Burse - Facultatea de Informatica\" - https://info.uvt.ro/burse", answer)
         self.assertNotIn("Metodologia privind acordarea burselor", answer)
 
@@ -274,7 +281,7 @@ class AppTests(unittest.TestCase):
 
         answer = chat_service_module.build_local_fallback_answer(retrieval_result)
 
-        self.assertIn("Backend-ul a gasit doar dovezi partiale", answer)
+        self.assertIn("Am gasit doar dovezi partiale", answer)
         self.assertIn("\"Pagina generala UVT\" - https://uvt.ro/", answer)
 
     def test_navigation_question_uses_ollama_with_backend_sources(self) -> None:
@@ -346,7 +353,7 @@ class AppTests(unittest.TestCase):
                     self.assertEqual(payload["confidence"], "low")
                     self.assertEqual(payload["retrieval_backend"], "unsupported_guard")
                     self.assertFalse(payload["evidence"]["answerable"])
-                    self.assertIn("Sursele oficiale disponibile nu sunt suficiente", payload["answer"])
+                    self.assertIn("Nu pot confirma asta din sursele oficiale indexate", payload["answer"])
 
     def test_bad_generation_is_repaired_with_ollama_before_fallback(self) -> None:
         retrieval_result = {

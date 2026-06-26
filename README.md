@@ -7,6 +7,7 @@ The system is designed as local-index-first RAG. Official UVT and faculty pages 
 ## Architecture
 
 - `extension/`: Chrome extension loaded with Load unpacked; this is the only user-facing interface.
+- `extension/js/content.js`: fallback faculty labels and student-facing UI text used by the popup.
 - `extension/js/api.js`: communication with the local Flask backend, including `/health`, `/faculties`, `/indexing/status`, `/chat`, and `/feedback`.
 - `extension/js/storage.js`: `chrome.storage.local` helpers, backend URL configuration, theme, recent questions, and per-faculty conversation history.
 - `extension/js/state.js`: popup conversation state and normalized history/source data.
@@ -20,17 +21,17 @@ The system is designed as local-index-first RAG. Official UVT and faculty pages 
 - `backend/rag/ranking/`: deterministic ranking signals split into lexical, faculty, page type, and policy/regulation scoring.
 - `backend/scripts/`: operational scripts for vector builds, smoke retrieval, demo readiness checks, crawling, and RAG/Q&A evaluation.
 - `backend/tests/`: pytest unit and integration tests for backend contracts, retrieval helpers, evaluation logic, config, and services.
-- `docs/`: technical, development, architecture, evaluation, latency, failure-case, and ablation-study documentation.
-- `scripts/`: PowerShell wrappers for setup, Qdrant startup, index builds, backend startup, smoke checks, tests, and evaluation.
+- `docs/`: technical, development, architecture, demo, AI-assistance, and evaluation documentation.
+- `scripts/`: PowerShell wrappers for setup, Qdrant startup, index builds, backend startup, smoke checks, tests, cleanup, and evaluation.
 
 For deeper technical documentation, see:
 
 - [docs/architecture.md](docs/architecture.md)
-- [docs/project_structure.md](docs/project_structure.md)
+- [docs/ai_assistance.md](docs/ai_assistance.md)
 - [docs/development.md](docs/development.md)
 - [docs/evaluation/methodology.md](docs/evaluation/methodology.md)
-- [docs/evaluation/latest_rag_eval.md](docs/evaluation/latest_rag_eval.md)
-- [docs/evaluation/ablation_plan.md](docs/evaluation/ablation_plan.md)
+- [docs/evaluation/results.md](docs/evaluation/results.md)
+- [docs/evaluation/failure_analysis.md](docs/evaluation/failure_analysis.md)
 
 ## Project Structure
 
@@ -41,6 +42,7 @@ UVT_Asist/
 |   |-- popup.html / popup.css / popup.js
 |   |-- options.html / options.css / options.js
 |   `-- js/
+|       |-- content.js
 |       |-- api.js
 |       |-- storage.js
 |       |-- state.js
@@ -194,7 +196,16 @@ Windows wrapper commands are available in `scripts/`:
 .\scripts\test.ps1 -EvaluateRag
 .\scripts\final_check.ps1
 .\scripts\final_check.ps1 -FullStack
+.\scripts\clean_workspace.ps1
 ```
+
+Workspace cleanup:
+
+```powershell
+.\scripts\clean_workspace.ps1 -StopBackendVenvProcesses
+```
+
+This removes generated reports, local caches, the optional OCR virtualenv, the duplicate `backend/.venv`, local Qdrant fallback storage, logs, and Python cache folders. It keeps the root `.venv`, `backend/data/page_index.json`, and Docker Qdrant storage by default. Use `-IncludeQdrantStorage` only when you are ready to rebuild the Qdrant collection.
 
 If `make` is available, the equivalent targets are:
 
@@ -277,14 +288,12 @@ Use the final [demo checklist](docs/demo_checklist.md) before the thesis present
 
 ## Documentatie tehnica
 
-- [Arhitectura tehnica](docs/architecture.md): descrie extensia Chrome, backendul Flask, crawlerul, chunking-ul, embeddings locale, Qdrant, retrieval, reranking, generarea cu Ollama si confidence score.
-- [Structura proiectului](docs/project_structure.md): explica organizarea codului pe directoare si responsabilitatile layerelor backend, RAG, extensie, teste, documentatie si scripturi.
+- [Arhitectura tehnica](docs/architecture.md): descrie extensia Chrome, backendul Flask, crawlerul, chunking-ul, embeddings locale, Qdrant, retrieval, reranking, generarea cu Ollama, structura proiectului si deciziile tehnice principale.
+- [Asistenta AI](docs/ai_assistance.md): descrie transparent unde a fost folosita asistenta AI si ce a fost verificat de autor.
 - [Ghid de dezvoltare locala](docs/development.md): setup Windows PowerShell, Ollama, Qdrant, build index, backend Flask si incarcarea extensiei Chrome.
-- [Metodologie evaluare RAG/Q&A](docs/evaluation/methodology.md): explica seturile de evaluare, pass/fail, scorul Q&A, Top-1/Top-3 URL, latenta si tratarea intrebarilor fara raspuns sigur.
-- [Ultima evaluare RAG post-refactor](docs/evaluation/latest_rag_eval.md): rezumat tracked pentru rularea pe 100 de intrebari dupa refactorizare.
-- [Plan ablation study](docs/evaluation/ablation_plan.md): descrie variantele lexical only, vector only, vector + reranking si full system.
-- [Cazuri de esec si refuz controlat](docs/evaluation/failure_cases.md): exemple de intrebari vagi, personale sau predictive unde sistemul trebuie sa ceara clarificari ori sa refuze un raspuns sigur.
-- [Note despre latenta](docs/evaluation/latency_notes.md): surse de latenta, interpretarea medie/mediana si practici pentru reducerea timpului de raspuns.
+- [Metodologie evaluare RAG/Q&A](docs/evaluation/methodology.md): explica seturile de evaluare, pass/fail, scorul Q&A, Top-1/Top-3 URL, latenta, tratarea intrebarilor fara raspuns sigur si ablation study.
+- [Rezultate evaluare](docs/evaluation/results.md): rezultate consolidate pentru Q&A 1000, RAG post-refactor, comparatia Q&A 100 si latenta.
+- [Analiza esecurilor si limitari](docs/evaluation/failure_analysis.md): limite masurate, refuz controlat, clarificari si taxonomie pentru review manual.
 
 ## Build Or Rebuild The Index
 
@@ -364,12 +373,6 @@ Invoke-RestMethod http://127.0.0.1:5000/health
 The health payload reports Ollama availability, configured models, JSON index status, Qdrant collection status, startup indexing progress, and response cache size.
 It also exposes a `ready` flag and component checks for the configured Ollama generation model, embedding model, JSON index, Qdrant index, and JSON/Qdrant chunk-count match.
 
-## Optional Local Test Interface
-
-For backend testing without loading the Chrome extension, open `test_interface.html` directly in a browser while Flask is running on `http://127.0.0.1:5000`.
-
-The page is a development-only test harness for `/health`, `/faculties`, `/chat`, and `/feedback`. It shows the answer, confidence metadata, official sources, health JSON, and raw response JSON. The Chrome extension popup remains the only user-facing product interface.
-
 ## Load The Chrome Extension
 
 1. Open `chrome://extensions`.
@@ -437,9 +440,9 @@ Generated reports are written under `backend/data/evaluation/`:
 
 `backend/data/evaluation/` is ignored by Git because it contains generated local reports. The stable evaluation dataset in `backend/evaluation/eval_questions.json` is versioned.
 
-For thesis write-up guidance, see [docs/evaluation/methodology.md](docs/evaluation/methodology.md), [docs/evaluation/ablation_plan.md](docs/evaluation/ablation_plan.md), and [docs/evaluation/README.md](docs/evaluation/README.md).
+For thesis write-up guidance, see [docs/evaluation/methodology.md](docs/evaluation/methodology.md), [docs/evaluation/results.md](docs/evaluation/results.md), [docs/evaluation/failure_analysis.md](docs/evaluation/failure_analysis.md), and [docs/evaluation/README.md](docs/evaluation/README.md).
 
-The latest tracked post-refactor RAG run is summarized in [docs/evaluation/latest_rag_eval.md](docs/evaluation/latest_rag_eval.md). Raw JSON/CSV/Markdown reports remain generated local artifacts under `backend/data/evaluation/` and are intentionally ignored by Git.
+The latest tracked post-refactor RAG run is summarized in [docs/evaluation/results.md](docs/evaluation/results.md). Raw JSON/CSV/Markdown reports remain generated local artifacts under `backend/data/evaluation/` and are intentionally ignored by Git.
 
 ## Evaluare independenta Q&A pe 1000 de intrebari
 
@@ -469,7 +472,7 @@ Rulare completa:
 python backend/scripts/evaluate_qa_1000_independent.py --dataset backend/evaluation/eval_qa_1000_independent.json --backend-url http://127.0.0.1:5000 --timeout 180 --delay-ms 150 --run-label final_1000 --resume
 ```
 
-Generarea raportului Markdown, CSV si LaTeX:
+Generarea raportului detaliat regenerabil, CSV si LaTeX:
 
 ```powershell
 python backend/scripts/report_qa_1000_independent.py --input backend/data/evaluation/<result_file>.json
@@ -477,7 +480,7 @@ python backend/scripts/report_qa_1000_independent.py --input backend/data/evalua
 
 Rezultatul rularii finale pe cele 1000 de intrebari a fost: 644 passed, 356 failed, pass rate 64.4%, scor mediu 72.34, scor median 82.35, Top-1 URL match 439/694 (63.26%), Top-3 URL match 502/694 (72.33%), confidence match 843/1000 (84.30%) si 0 erori. Cele mai bune categorii au fost `voluntariat_credite` (95%), `contact_secretariat` (92%), `cazare_camine` (87%) si `admitere` (80%); cele mai slabe au fost `intrebari_vagi_ambigue` (16%), `calendar_academic` (39%), `intrebari_fara_raspuns_sigur` (43%) si `regulamente_metodologii` (59%).
 
-Raportul complet este in [docs/evaluation/qa1000_independent_report.md](docs/evaluation/qa1000_independent_report.md), interpretarea rezultatelor este in [docs/evaluation/qa1000_interpretation.md](docs/evaluation/qa1000_interpretation.md), iar tabelele pentru lucrarea LaTeX sunt in [docs/evaluation/qa1000_independent_latex_tables.tex](docs/evaluation/qa1000_independent_latex_tables.tex).
+Rezultatele consolidate sunt in [docs/evaluation/results.md](docs/evaluation/results.md), analiza limitarilor este in [docs/evaluation/failure_analysis.md](docs/evaluation/failure_analysis.md), iar tabelele pentru lucrarea LaTeX sunt in [docs/evaluation/qa1000_independent_latex_tables.tex](docs/evaluation/qa1000_independent_latex_tables.tex).
 
 Metricile raportate includ `pass_rate`, scor mediu, scor median, `ideal_overlap_score` informativ, Top-1 URL match, Top-3 URL match, confidence match, unanswerable handled si latente medie/mediana/p90/p95.
 
@@ -581,7 +584,7 @@ Manual popup checklist:
 - If official pages change, the index must be rebuilt with `python backend\build_index.py`.
 - If the embedding model changes, rebuild the Qdrant vector collection.
 - Answer quality and latency depend on the local Ollama generation model and local hardware.
-- Live fetching is intentionally bounded to keep the demo deterministic.
+- Runtime answers use the local JSON/Qdrant snapshot; freshness comes from rebuilding the index.
 - OCR support is optional and depends on the separate OCR setup.
 - The application is designed for local execution, not direct public exposure.
 - The popup is the only user-facing interface; there is no separate web frontend.

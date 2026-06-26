@@ -54,20 +54,20 @@ def build_source_summary_answer(retrieval_result: dict, reason: str | None = Non
     sources = unique_sources_from_chunks(chunks)[:2]
     if not sources:
         return (
-            "Nu exista suficiente fragmente oficiale selectate de backend pentru a trimite un context util catre Ollama. "
-            "Nu pot formula un raspuns sigur si nu pot cita o sursa specifica pentru aceasta intrebare."
+            "Nu am suficiente surse oficiale selectate pentru un raspuns sigur. "
+            "Reformuleaza intrebarea mai concret sau reconstruieste indexul daca informatia ar trebui sa existe in sursele UVT."
         )
 
     source_list = "; ".join(source_reference(source["title"], source["url"]) for source in sources)
-    prefix = reason or "Nu pot genera local un raspuns de continut, deoarece analiza informatiei este rezervata pentru Ollama."
+    prefix = reason or "Nu pot interpreta continutul in siguranta fara Ollama; pot doar sa indic sursele oficiale gasite."
     if retrieval_result.get("confidence") == "low":
         return (
-            f"{prefix} Backend-ul a gasit doar dovezi partiale sau prea generale. "
-            f"Sursele oficiale cele mai apropiate sunt: {source_list}."
+            f"{prefix} Am gasit doar dovezi partiale sau prea generale. "
+            f"Cele mai apropiate surse oficiale sunt: {source_list}."
         )
 
     return (
-        f"{prefix} Backend-ul a selectat urmatoarele surse oficiale pentru intrebare: {source_list}."
+        f"{prefix} Sursele oficiale relevante pentru intrebare sunt: {source_list}."
     )
 
 
@@ -139,15 +139,15 @@ def faculty_clarification_payload(faculty: dict, retrieval_result: dict) -> dict
         "retrieval_backend": "clarification",
     }
     answer = (
-        f"Pentru {label}, alege mai intai facultatea din lista sau mentioneaza numele ei in intrebare. "
-        "Fara facultate, exista mai multe pagini oficiale posibile si nu pot alege sigur una singura."
+        f"Pentru {label}, am nevoie si de facultate. Alege facultatea din lista sau scrie numele ei in intrebare. "
+        "Altfel exista mai multe pagini oficiale posibile si as putea indica sursa gresita."
     )
     return build_response_payload(answer, faculty, retrieval_result, False, {"mode": "clarification"})
 
 
 def empty_response_payload() -> dict:
     return {
-        "answer": "Intrebarea este goala.",
+        "answer": "Scrie o intrebare ca sa pot cauta in sursele oficiale.",
         "sources": [],
         "matched_faculty": FACULTY_MAP[GENERAL_FACULTY_ID]["name"],
         "matched_faculty_id": GENERAL_FACULTY_ID,

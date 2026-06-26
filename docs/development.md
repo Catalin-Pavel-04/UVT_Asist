@@ -322,3 +322,31 @@ Echivalent prin wrapper:
 ```
 
 Rapoartele generate local sunt scrise in `backend/data/evaluation/`. Datasetul versionat de intrebari este `backend/evaluation/eval_questions.json` si nu trebuie modificat pentru a imbunatati artificial rezultatele.
+
+## 11. Curatare workspace
+
+Pentru a elibera spatiu fara sa atingi codul sursa sau documentatia versionata:
+
+```powershell
+.\scripts\clean_workspace.ps1 -StopBackendVenvProcesses
+```
+
+Comanda sterge artefacte regenerabile: rapoarte locale de evaluare, cache-uri Python, loguri, `backend/data/qdrant_local`, mediul OCR optional si mediul virtual duplicat `backend/.venv`.
+
+Implicit sunt pastrate:
+
+- `.venv`, mediul principal recomandat in README;
+- `backend/data/page_index.json`, snapshotul local mare dar util pentru demo;
+- `qdrant_storage/`, colectia Docker Qdrant folosita de serverul local.
+
+Daca vrei sa eliberezi si spatiul ocupat de Qdrant Docker, opreste containerul si ruleaza:
+
+```powershell
+.\scripts\clean_workspace.ps1 -IncludeQdrantStorage
+```
+
+Dupa stergerea `qdrant_storage/`, colectia trebuie reconstruita inainte de demo:
+
+```powershell
+python backend\scripts\build_vector_index.py
+```

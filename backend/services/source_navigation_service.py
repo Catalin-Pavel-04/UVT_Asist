@@ -159,7 +159,7 @@ def build_source_navigation_answer(question: str, retrieval_result: dict) -> str
     if not sources:
         return build_local_fallback_answer(
             retrieval_result,
-            reason="Nu exista o sursa oficiala suficient de clara pentru un raspuns direct.",
+            reason="Nu am gasit o sursa oficiala suficient de clara pentru un raspuns direct.",
         )
 
     top = sources[0]
@@ -167,7 +167,7 @@ def build_source_navigation_answer(question: str, retrieval_result: dict) -> str
     url = compact_text(top.get("url"), 500)
     topic = source_navigation_topic(question, retrieval_result)
     if len(sources) == 1:
-        return f"Pentru {topic}, consulta sursa oficiala \"{title}\" - {url}."
+        return f"Pentru {topic}, cel mai bun punct de plecare este \"{title}\" - {url}."
 
     extra_sources = []
     for source in sources[1:3]:
@@ -178,7 +178,7 @@ def build_source_navigation_answer(question: str, retrieval_result: dict) -> str
 
     if extra_sources:
         return (
-            f"Pentru {topic}, consulta mai intai sursa oficiala \"{title}\" - {url}. "
-            f"Surse oficiale suplimentare: {'; '.join(extra_sources)}."
+            f"Pentru {topic}, incepe cu sursa oficiala \"{title}\" - {url}. "
+            f"Mai pot fi utile si: {'; '.join(extra_sources)}."
         )
-    return f"Pentru {topic}, consulta sursa oficiala \"{title}\" - {url}."
+    return f"Pentru {topic}, cel mai bun punct de plecare este \"{title}\" - {url}."

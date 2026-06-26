@@ -9,6 +9,8 @@ backend/.venv/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
 htmlcov/
 
@@ -21,7 +23,12 @@ backend/data/page_index.meta.json
 backend/data/evaluation/
 backend/data/qdrant_local/
 qdrant_storage/
+docs/evaluation/qa1000_independent_report.md
 
 # OS/editor noise
 .DS_Store
 Thumbs.db
+*.tmp
+*.bak
+*.swp
+~$*

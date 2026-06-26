@@ -13,7 +13,7 @@
         <div class="logo" aria-hidden="true">U</div>
         <div>
           <h1>UVT Asist</h1>
-          <p>Răspunsuri din surse oficiale UVT</p>
+          <p>Găsește mai repede paginile oficiale UVT</p>
         </div>
       </div>
       <div class="topbar-actions">
@@ -25,7 +25,7 @@
 
     <section id="statusPanel" class="status-panel status-idle" aria-live="polite" hidden>
       <div id="statusTitle" class="status-title">Pregătit</div>
-      <div id="statusText" class="status-text">Răspunsurile folosesc căutare vectorială locală și verifică doar sursele de top.</div>
+      <div id="statusText" class="status-text">Alege o facultate și întreabă ceva concret.</div>
       <div id="indexProgress" class="index-progress" hidden>
         <div class="index-progress-head">
           <span id="indexProgressText">Indexare în curs</span>
@@ -48,9 +48,9 @@
     <section id="log" class="chat" aria-label="Conversație">
       <div id="emptyState" class="empty-state">
         <div class="empty-kicker">Exemple utile</div>
-        <div class="empty-title">Întreabă concret</div>
+        <div class="empty-title">Cu ce vrei să începi?</div>
         <div id="emptyText" class="empty-text">
-          Orar, secretariat, admitere, burse sau reguli despre cumularea burselor.
+          Alege o facultate, apoi întreabă despre orar, secretariat, admitere sau burse.
         </div>
       </div>
     </section>
@@ -73,11 +73,12 @@
     </details>
 
     <section class="composer">
-      <textarea id="q" rows="2" placeholder="Scrie întrebarea aici..."></textarea>
+      <textarea id="q" rows="2" placeholder="Exemplu: Unde găsesc orarul la Informatică?"></textarea>
       <button id="send" type="button">Trimite</button>
     </section>
   </main>
 
+  <script src="js/content.js"></script>
   <script src="js/api.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/state.js"></script>

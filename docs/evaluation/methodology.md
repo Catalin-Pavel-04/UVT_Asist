@@ -3,10 +3,10 @@
 Evaluarea proiectului UVT_Asist foloseste doua seturi versionate in repository:
 
 - `backend/evaluation/eval_questions.json`: setul de evaluare RAG prin `backend/scripts/evaluate_rag.py`, cu 41 de intrebari orientate spre verificarea surselor, Top-1/Top-3 URL, confidence si latenta.
-- `backend/evaluation/eval_qa_100.json`: setul Q&A de 100 de intrebari prin `backend/scripts/evaluate_qa.py`, folosit pentru scorul mediu Q&A si raportul comparativ `qa_before_after_stats.md`.
-- `backend/data/evaluation/eval_qa_1000_independent.json`: set independent de 1000 de intrebari pentru evaluarea finala Q&A. Datasetul este plasat local in zona de evaluare si este evaluat prin `backend/scripts/evaluate_qa_1000_independent.py`.
+- `backend/evaluation/eval_qa_100.json`: setul Q&A de 100 de intrebari prin `backend/scripts/evaluate_qa.py`, folosit pentru scorul mediu Q&A si comparatia inainte/dupa consolidata in `results.md`.
+- `backend/evaluation/eval_qa_1000_independent.json`: set independent de 1000 de intrebari pentru evaluarea finala Q&A. Datasetul versionat este evaluat prin `backend/scripts/evaluate_qa_1000_independent.py`; scriptul pastreaza fallback pentru copia locala din `backend/data/evaluation/`, daca exista.
 
-Aceasta separare este importanta pentru raportarea academica: primul set masoara in principal recuperarea surselor oficiale si comportamentul de siguranta, iar al doilea combina surse, raspuns, confidence si acoperire semantica intr-un scor 0-100.
+Aceasta separare este importanta pentru raportarea academica: setul RAG masoara in principal recuperarea surselor oficiale si comportamentul de siguranta, iar seturile Q&A combina surse, raspuns, confidence si acoperire semantica intr-un scor 0-100.
 
 Rezultatele nu reprezinta o garantie generala absoluta pentru orice intrebare posibila. Ele masoara comportamentul sistemului pe seturile definite in proiect, in conditiile locale in care ruleaza Flask, Ollama si Qdrant.
 
@@ -55,9 +55,7 @@ Evaluarea Q&A ruleaza pe setul de 100 de intrebari si compara raspunsul generat 
 python backend\scripts\evaluate_qa.py
 ```
 
-Acest script produce `qa_score`, `passed`, `confidence_match`, `top1_url_match`, `top3_url_match`, acoperire de fraze obligatorii, acoperire de termeni din raspunsul ideal si latenta. Raportul comparativ existent este:
-
-[qa_before_after_stats.md](qa_before_after_stats.md)
+Acest script produce `qa_score`, `passed`, `confidence_match`, `top1_url_match`, `top3_url_match`, acoperire de fraze obligatorii, acoperire de termeni din raspunsul ideal si latenta. Rezultatele comparative sunt consolidate in [results.md](results.md).
 
 ## Evaluare independenta Q&A pe 1000 de intrebari
 
@@ -117,7 +115,7 @@ Latenta medie a fost 23.323s, mediana 24.335s, P90 39.986s si P95 51.269s. Acest
 
 Distributia `generation_mode` a fost: `ollama` 458, `local_source_navigation` 347, `fallback_ollama_error` 105, `none` 61 si `clarification` 29. Distributia `retrieval_backend` a fost: `qdrant` 910, `clarification` 58 si `unsupported_guard` 32. Acest lucru confirma ca evaluarea a folosit in principal retrievalul local prin Qdrant, cu ramuri de clarificare sau refuz controlat pentru o parte din cazuri.
 
-Interpretarea completa se afla in [qa1000_interpretation.md](qa1000_interpretation.md), iar raportul numeric complet in [qa1000_independent_report.md](qa1000_independent_report.md). Rezultatul trebuie folosit ca evaluare pe setul definit, nu ca garantie universala, iar benchmarkul nu a fost folosit pentru tuningul aplicatiei.
+Rezultatele numerice si interpretarea sunt consolidate in [results.md](results.md), iar limitele si analiza esecurilor sunt in [failure_analysis.md](failure_analysis.md). Rezultatul trebuie folosit ca evaluare pe setul definit, nu ca garantie universala, iar benchmarkul nu a fost folosit pentru tuningul aplicatiei.
 
 Rezultatele sunt valabile pe setul definit si pe configuratia locala folosita la rulare, nu reprezinta garantie universala pentru orice intrebare posibila.
 
@@ -212,3 +210,44 @@ Calitatea pentru intrebari noi depinde de:
 - versiunea snapshotului local si cache-urile locale.
 
 Seturile de evaluare nu trebuie modificate pentru a imbunatati artificial rezultatele. Orice schimbare de dataset trebuie raportata ca schimbare metodologica.
+
+## Plan de ablation study
+
+Un ablation study compara mai multe variante ale aceluiasi sistem, pastrand acelasi set de intrebari, aceeasi versiune de index si acelasi mediu local. Diferenta dintre rezultate arata contributia probabila a componentelor eliminate sau adaugate.
+
+Pentru o comparatie corecta, toate variantele trebuie rulate cu:
+
+- acelasi `backend/evaluation/eval_questions.json` pentru metrici RAG;
+- acelasi `backend/evaluation/eval_qa_100.json` pentru scor Q&A;
+- acelasi snapshot `backend/data/page_index.json`;
+- aceeasi colectie Qdrant sau aceeasi reconstruire vectoriala;
+- aceleasi modele Ollama pentru generare si embedding;
+- acelasi backend URL si aceleasi timeout-uri;
+- acelasi hardware local, pe cat posibil.
+
+Comenzi de baza:
+
+```powershell
+python backend\scripts\evaluate_rag.py
+python backend\scripts\evaluate_qa.py
+```
+
+Variante recomandate:
+
+| Varianta | Descriere | Ce masoara |
+| --- | --- | --- |
+| Lexical only | Sistemul foloseste indexul local JSON si ranking lexical/determinist, fara Qdrant. | Cat de mult acopera potrivirea de termeni si unde esueaza intrebarile parafrazate. |
+| Vector only | Sistemul foloseste cautarea semantica Qdrant, fara reranking determinist suplimentar. | Cat de buna este recuperarea semantica pura si cat de instabil devine Top-1. |
+| Vector + reranking | Sistemul foloseste Qdrant pentru candidati si reranking determinist pentru surse specifice. | Contributia semnalelor de facultate, tip pagina, titlu, URL si policy. |
+| Full system | Configuratia principala: index local, Qdrant, reranking determinist, policy routing, prompt RAG si Ollama. | Performanta sistemului folosit in demo si comportamentul pe intrebari fara raspuns sigur. |
+
+Tabel recomandat pentru raport:
+
+| Varianta | Top-1 URL | Top-3 URL | Scor mediu Q&A | Pass rate | Confidence match | Unanswerable handled | Latenta medie | Latenta mediana |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Lexical only |  |  |  |  |  |  |  |  |
+| Vector only |  |  |  |  |  |  |  |  |
+| Vector + reranking |  |  |  |  |  |  |  |  |
+| Full system |  |  |  |  |  |  |  |  |
+
+Un ablation study nu trebuie folosit pentru a alege manual intrebari favorabile. Toate variantele trebuie evaluate pe aceleasi seturi. Daca o varianta esueaza pe anumite categorii, acele esecuri trebuie raportate, deoarece ele arata de ce componentele adaugate sunt necesare.

@@ -90,9 +90,9 @@ def unsupported_question_payload(chat_request: ChatRequest) -> dict:
     faculty = get_faculty(chat_request.requested_faculty_id)
     return {
         "answer": (
-            "Sursele oficiale disponibile nu sunt suficiente pentru un raspuns sigur la aceasta intrebare. "
-            "Nu pot confirma date personale, parole, note, decizii individuale sau predictii despre rezultate viitoare. "
-            "Verifica portalurile oficiale sau contacteaza secretariatul/comisia relevanta."
+            "Nu pot confirma asta din sursele oficiale indexate. "
+            "Intrebarea cere date personale, parole, note, decizii individuale sau predictii despre rezultate viitoare. "
+            "Pentru astfel de cazuri, verifica portalurile oficiale sau contacteaza secretariatul ori comisia relevanta."
         ),
         "sources": [],
         "matched_faculty": faculty["name"],
@@ -125,8 +125,8 @@ def vague_question_payload(chat_request: ChatRequest) -> dict:
     faculty = get_faculty(chat_request.requested_faculty_id)
     return {
         "answer": (
-            "Intrebarea este prea generala pentru un raspuns sigur din surse oficiale. "
-            "Precizeaza tema, de exemplu orar, secretariat, admitere, burse, cazare, calendar academic "
+            "Am nevoie de un pic mai mult context ca sa aleg sursa oficiala potrivita. "
+            "Spune tema concreta: orar, secretariat, admitere, burse, cazare, calendar academic "
             "sau credite de voluntariat."
         ),
         "sources": [],
@@ -160,8 +160,8 @@ def query_analysis_clarification_payload(chat_request: ChatRequest, analysis) ->
     faculty = get_faculty(chat_request.requested_faculty_id)
     reason = str(getattr(analysis, "clarification_reason", "") or "").strip()
     answer = (
-        "Am nevoie de o clarificare pentru a selecta sursa oficiala corecta. "
-        "Precizeaza tema exacta, de exemplu orar, program secretariat, program de studii, admitere, burse sau regulamente."
+        "Am nevoie de o clarificare ca sa aleg sursa oficiala corecta. "
+        "Precizeaza tema exacta: orar, programul secretariatului, program de studii, admitere, burse sau regulamente."
     )
     if reason:
         answer = f"{answer} Motiv: {reason}."
@@ -203,9 +203,9 @@ def indexing_in_progress_payload(chat_request: ChatRequest) -> dict:
 
     return {
         "answer": (
-            "Indexarea surselor oficiale UVT este in curs. "
+            "Inca indexez sursele oficiale UVT. "
             f"Progres curent: {progress}%. {message} "
-            "Raspunsurile vor fi disponibile dupa finalizarea indexarii."
+            "Raspunsurile vor fi disponibile dupa ce se termina indexarea."
         ),
         "sources": [],
         "matched_faculty": faculty["name"],
