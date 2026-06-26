@@ -76,6 +76,21 @@ Scorul principal nu compara raspunsul text-la-text cu ideal_answer. Pentru intre
 | regulamente_metodologii | 100 | 59.0% | 72.57 | 19/100 | 42/100 | 17.358 | 0 |
 | voluntariat_credite | 100 | 95.0% | 90.27 | 97/100 | 100/100 | 25.203 | 0 |
 
+## Grafice
+
+- [Pass rate pe categorii](figures/qa1000_pass_rate_by_category.png)
+- [Latenta medie pe categorii](figures/qa1000_average_latency_by_category.png)
+- [Distributia modului de generare](figures/qa1000_generation_mode_distribution.png)
+- [Distributia backendului de retrieval](figures/qa1000_retrieval_backend_distribution.png)
+
+![Pass rate pe categorii](figures/qa1000_pass_rate_by_category.png)
+
+![Latenta medie pe categorii](figures/qa1000_average_latency_by_category.png)
+
+![Distributia modului de generare](figures/qa1000_generation_mode_distribution.png)
+
+![Distributia backendului de retrieval](figures/qa1000_retrieval_backend_distribution.png)
+
 ## Latente
 
 | Metrica | Secunde |

@@ -475,6 +475,10 @@ Generarea raportului Markdown, CSV si LaTeX:
 python backend/scripts/report_qa_1000_independent.py --input backend/data/evaluation/<result_file>.json
 ```
 
+Rezultatul rularii finale pe cele 1000 de intrebari a fost: 644 passed, 356 failed, pass rate 64.4%, scor mediu 72.34, scor median 82.35, Top-1 URL match 439/694 (63.26%), Top-3 URL match 502/694 (72.33%), confidence match 843/1000 (84.30%) si 0 erori. Cele mai bune categorii au fost `voluntariat_credite` (95%), `contact_secretariat` (92%), `cazare_camine` (87%) si `admitere` (80%); cele mai slabe au fost `intrebari_vagi_ambigue` (16%), `calendar_academic` (39%), `intrebari_fara_raspuns_sigur` (43%) si `regulamente_metodologii` (59%).
+
+Raportul complet este in [docs/evaluation/qa1000_independent_report.md](docs/evaluation/qa1000_independent_report.md), interpretarea rezultatelor este in [docs/evaluation/qa1000_interpretation.md](docs/evaluation/qa1000_interpretation.md), iar tabelele pentru lucrarea LaTeX sunt in [docs/evaluation/qa1000_independent_latex_tables.tex](docs/evaluation/qa1000_independent_latex_tables.tex).
+
 Metricile raportate includ `pass_rate`, scor mediu, scor median, `ideal_overlap_score` informativ, Top-1 URL match, Top-3 URL match, confidence match, unanswerable handled si latente medie/mediana/p90/p95.
 
 Rezultatele sunt valabile pe setul definit si pe configuratia locala folosita la rulare, nu reprezinta garantie universala pentru orice intrebare posibila.

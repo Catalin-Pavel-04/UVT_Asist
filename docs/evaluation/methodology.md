@@ -105,6 +105,20 @@ Metricile raportate includ:
 - `expected_unanswerable_handled`: intrebarile fara raspuns sigur sunt tratate prudent;
 - latenta medie, mediana, p90 si p95.
 
+## Interpretarea rezultatelor Q&A 1000
+
+Rularea finala pe setul independent Q&A 1000 a produs 644 de cazuri `passed` si 356 de cazuri `failed`, adica un pass rate de 64.4%. Scorul mediu a fost 72.34, iar scorul median 82.35. Diferenta dintre medie si mediana arata ca raspunsul tipic este mai bun decat media, dar exista categorii si cazuri cu scoruri mici care trag rezultatul global in jos.
+
+Metricile de sursa arata ca Top-1 URL match a fost 439/694 (63.26%), iar Top-3 URL match a fost 502/694 (72.33%). Confidence match a fost 843/1000 (84.30%), iar evaluarea nu a inregistrat erori de request sau executie. Aceste cifre sustin o concluzie prudenta: sistemul este functional si stabil pe setul evaluat, dar acuratetea nu este uniforma pe toate tipurile de intrebari.
+
+Cele mai bune categorii au fost `voluntariat_credite` (95%), `contact_secretariat` (92%), `cazare_camine` (87%) si `admitere` (80%). Acestea sunt categorii cu intentii administrative relativ clare si surse oficiale bine delimitate. Cele mai slabe categorii au fost `intrebari_vagi_ambigue` (16%), `calendar_academic` (39%), `intrebari_fara_raspuns_sigur` (43%) si `regulamente_metodologii` (59%). Aceste rezultate arata limitele sistemului in clarificarea intrebarilor vagi, in refuzul intrebarilor fara dovezi oficiale si in selectia surselor foarte specifice pentru calendare, regulamente si metodologii.
+
+Latenta medie a fost 23.323s, mediana 24.335s, P90 39.986s si P95 51.269s. Aceste valori sunt specifice mediului local de rulare si trebuie raportate ca limita operationala: sistemul poate raspunde corect, dar timpul de raspuns este de ordinul zecilor de secunde pentru multe intrebari.
+
+Distributia `generation_mode` a fost: `ollama` 458, `local_source_navigation` 347, `fallback_ollama_error` 105, `none` 61 si `clarification` 29. Distributia `retrieval_backend` a fost: `qdrant` 910, `clarification` 58 si `unsupported_guard` 32. Acest lucru confirma ca evaluarea a folosit in principal retrievalul local prin Qdrant, cu ramuri de clarificare sau refuz controlat pentru o parte din cazuri.
+
+Interpretarea completa se afla in [qa1000_interpretation.md](qa1000_interpretation.md), iar raportul numeric complet in [qa1000_independent_report.md](qa1000_independent_report.md). Rezultatul trebuie folosit ca evaluare pe setul definit, nu ca garantie universala, iar benchmarkul nu a fost folosit pentru tuningul aplicatiei.
+
 Rezultatele sunt valabile pe setul definit si pe configuratia locala folosita la rulare, nu reprezinta garantie universala pentru orice intrebare posibila.
 
 ## Ce inseamna pass/fail
