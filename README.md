@@ -93,14 +93,15 @@ When `OLLAMA_QUERY_ANALYSIS_ENABLED=true`, the backend first asks Ollama for a J
 
 Run all commands from the repository root.
 
-1. Create and activate the Python environment:
+1. Create the Python environment and install dependencies:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r backend\requirements.txt
-Copy-Item backend\.env.example backend\.env
+if (-not (Test-Path .venv\Scripts\python.exe)) { python -m venv .venv }
+& .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+if (-not (Test-Path backend\.env)) { Copy-Item backend\.env.example backend\.env }
 ```
+
+If `python -m venv .venv` reports `Permission denied` for `.venv\Scripts\python.exe`, the environment already exists or is in use. Reuse it with `& .\.venv\Scripts\python.exe ...`; if it must be recreated, close terminals/processes using that venv first.
 
 2. Start Ollama in one terminal, then pull the local models from another terminal:
 
@@ -124,13 +125,13 @@ Qdrant uses the pinned image from `docker-compose.yml` for thesis demo reproduci
 4. Build the JSON and Qdrant indexes:
 
 ```powershell
-python backend\build_index.py
+& .\.venv\Scripts\python.exe backend\build_index.py
 ```
 
 5. Start Flask and check health:
 
 ```powershell
-python backend\app.py
+& .\.venv\Scripts\python.exe backend\app.py
 Invoke-RestMethod http://127.0.0.1:5000/health
 ```
 
@@ -144,10 +145,9 @@ Invoke-RestMethod http://127.0.0.1:5000/health
 ## Setup
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r backend\requirements.txt
-Copy-Item backend\.env.example backend\.env
+if (-not (Test-Path .venv\Scripts\python.exe)) { python -m venv .venv }
+& .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+if (-not (Test-Path backend\.env)) { Copy-Item backend\.env.example backend\.env }
 ```
 
 Install and start Ollama, then pull local models:
@@ -240,14 +240,13 @@ Docker Compose creates the container on the first run and reuses it on later run
 3. Build the local JSON and Qdrant index once:
 
 ```powershell
-.venv\Scripts\activate
-python backend\build_index.py
+& .\.venv\Scripts\python.exe backend\build_index.py
 ```
 
 4. Start the Flask backend:
 
 ```powershell
-python backend\app.py
+& .\.venv\Scripts\python.exe backend\app.py
 ```
 
 5. Check that the backend is ready:
@@ -264,14 +263,14 @@ Invoke-RestMethod http://127.0.0.1:5000/health
 - Select the `extension/` folder.
 - Open the extension popup and ask a question.
 
-For later runs, the usual sequence is shorter: start Ollama, start Qdrant, activate `.venv`, run `python backend\app.py`, then use the already-loaded Chrome extension. Rebuild the index only when official sources, crawler settings, chunking, or the embedding model change.
+For later runs, the usual sequence is shorter: start Ollama, start Qdrant, run `& .\.venv\Scripts\python.exe backend\app.py`, then use the already-loaded Chrome extension. Rebuild the index only when official sources, crawler settings, chunking, or the embedding model change.
 
 ## Verificare demo
 
 Before a thesis demo, run:
 
 ```powershell
-python backend\scripts\demo_check.py
+& .\.venv\Scripts\python.exe backend\scripts\demo_check.py
 ```
 
 The script checks Python imports, `backend/.env`, Ollama availability, configured Ollama models, Qdrant, the Flask `/health` endpoint when it is running, the JSON index, and the Qdrant collection status. It prints `OK`, `WARNING`, and `ERROR` lines with concrete recovery commands such as:
@@ -279,8 +278,8 @@ The script checks Python imports, `backend/.env`, Ollama availability, configure
 - `ollama pull qwen3:4b`
 - `ollama pull nomic-embed-text`
 - `docker compose up -d qdrant`
-- `python backend/build_index.py`
-- `python backend/app.py`
+- `& .\.venv\Scripts\python.exe backend/build_index.py`
+- `& .\.venv\Scripts\python.exe backend/app.py`
 
 ## Checklist demo
 
@@ -543,7 +542,7 @@ Before a thesis demo, after starting Ollama and Qdrant, run the full local check
 Run retrieval smoke tests after index, RAG/retrieval, embedding, or Qdrant changes:
 
 ```powershell
-python backend\scripts\smoke_retrieval.py
+& .\.venv\Scripts\python.exe backend\scripts\smoke_retrieval.py
 ```
 
 The smoke test is expected to fail if Ollama is not running, because query embeddings cannot be created and the retrieval layer correctly falls back to local JSON lexical ranking instead of reporting Qdrant success.
@@ -551,20 +550,20 @@ The smoke test is expected to fail if Ollama is not running, because query embed
 Run backend health after backend changes:
 
 ```powershell
-python backend\app.py
+& .\.venv\Scripts\python.exe backend\app.py
 Invoke-RestMethod http://127.0.0.1:5000/health
 ```
 
 Run the demo readiness check before presenting:
 
 ```powershell
-python backend\scripts\demo_check.py
+& .\.venv\Scripts\python.exe backend\scripts\demo_check.py
 ```
 
 Run the RAG evaluation when the full local stack is up:
 
 ```powershell
-python backend\scripts\evaluate_rag.py
+& .\.venv\Scripts\python.exe backend\scripts\evaluate_rag.py
 ```
 
 Manual popup checklist:
